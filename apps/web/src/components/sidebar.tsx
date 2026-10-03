@@ -16,6 +16,12 @@ type NavItem = {
 const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: '\u229E' },
   { label: 'Event Setup', href: '/dashboard/event', icon: '⚙' },
+  {
+    label: 'Upload setup',
+    href: '/dashboard/upload',
+    icon: '\u21EA',
+    roles: ['SUPER_ADMIN', 'ADMIN'],
+  },
   { label: 'Schedule', href: '/dashboard/schedule', icon: '📅' },
   { label: 'Command Centre', href: '/dashboard/operations', icon: '▶' },
   { label: 'Scoring', href: '/dashboard/scoring', icon: '\uD83D\uDCCA' },

@@ -6,8 +6,8 @@ import { useAuthStore } from '@/lib/auth-store';
 import { LOGIN_MUTATION } from '@/lib/queries';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('admin@hackathon.local');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -60,7 +60,6 @@ export default function LoginPage() {
               {loading ? 'Authenticating...' : 'Sign In'}
             </button>
           </form>
-          <p className="mt-5 text-xs text-slate-500 text-center font-mono">admin@hackathon.local / admin123</p>
         </div>
       </div>
     </main>
