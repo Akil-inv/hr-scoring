@@ -1,0 +1,100 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Generous, and reserved: if memory gets tight the database should be the
+    # last thing the kernel considers killing, not the first.
+    mem_limit: 1g
+    mem_reservation: 768m
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    environment:
+      POSTGRES_DB: hackathon
+      POSTGRES_USER: hackathon
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hackathon"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  api:
+    build:
+      context: ./apps/api
+    restart: unless-stopped
+    mem_limit: 768m
+    logging: *logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # connection_limit raises Prisma's default of num_cpus * 2 + 1, which on a
+      # small instance can be as few as five. Pool exhaustion under polling
+      # presents as slow queries that look like a database problem.
+      DATABASE_URL: postgresql://hackathon:${DB_PASSWORD}@postgres:5432/hackathon?connection_limit=20&pool_timeout=20
+      JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: production
+      SCHEDULER_URL: http://scheduler:8001
+      AWS_REGION: ap-southeast-1
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      JUDGE_TOKEN_SALT: ${JUDGE_TOKEN_SALT}
+    # restart: unless-stopped only acts when a process exits. A Node process that
+    # is alive but not responding stays alive and broken, and nothing notices.
+    healthcheck:
+      # node, not wget: the image has neither wget nor curl, so the old
+      # probe failed on a missing binary while the API was perfectly
+      # healthy — and depends_on then refused to start anything behind it.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+  scheduler:
+    build:
+      context: ./apps/scheduler
+    restart: unless-stopped
+    # The limit that should bind first. If a solve exhausts memory, the solver
+    # should die rather than the kernel choosing Postgres for it.
+    mem_limit: 1g
+    # A solve will otherwise take every core and leave judges with a sluggish
+    # portal. Slower schedules, responsive platform — the right trade during an
+    # event.
+    cpus: 1.5
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_API_URL: ""
+    restart: unless-stopped
+    mem_limit: 512m
+    logging: *logging
+    # Without the condition the web container can start before the API is ready
+    # and serve errors until somebody reloads.
+    depends_on:
+      api:
+        condition: service_healthy
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    logging: *logging
+    depends_on:
+      - web
+      - api
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+volumes:
+  pgdata:

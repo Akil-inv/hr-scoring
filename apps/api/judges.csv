@@ -1,0 +1,15 @@
+name,email,organisation,designation,judge_type,judge_tier,max_sessions
+Amanda Lee,amanda.lee@example.com,Group Technology,Team Lead,DOMAIN,L1,6
+Bryan Tan,bryan.tan@example.com,Group Retail,Vendor Partner,DOMAIN,L1,6
+Carmen Ng,carmen.ng@example.com,Group Operations,Team Lead,DOMAIN,L1,5
+David Lim,david.lim@example.com,Group Operations,Team Lead,DOMAIN,L1,5
+Eric Foo,eric.foo@example.com,Group Data,Team Lead,DOMAIN,L1,4
+Fiona Yeo,fiona.yeo@example.com,Group Compliance,Team Lead,DOMAIN,L1,4
+Dr. Wei Lin,wei.lin@example.com,Group Technology,Executive Director,TECHNICAL,L2,4
+Dr. Priya Menon,priya.menon@example.com,Group Risk,Managing Director,TECHNICAL,L2,4
+James Toh,james.toh@example.com,Group Strategy,Executive Director,BUSINESS,L2,3
+Lisa Wong,lisa.wong@example.com,Group Digital,Managing Director,BUSINESS,L2,3
+Michael Rao,michael.rao@example.com,Group Finance,Executive Director,BUSINESS,L2,3
+Sarah Chen,sarah.chen@example.com,Group Technology,MEC Member,EXECUTIVE,L3,2
+Robert Kwok,robert.kwok@example.com,Group Operations,MEC Member,EXECUTIVE,L3,2
+Diana Lau,diana.lau@example.com,Group Strategy,MEC Member,EXECUTIVE,L3,2

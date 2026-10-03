@@ -1,0 +1,21 @@
+team_name,project_name,track_name,team_lead_email,team_lead_name,use_case_title,organisation,country,tech_stack
+AlphaBot,AI Customer Assistant,Customer Experience,alice@example.com,Alice Tan,Automated App Store Review Analysis,Group Technology,Singapore,Python/GPT-4
+BetaFlow,Smart Onboarding,Customer Experience,bob@example.com,Bob Chen,Digital Onboarding Journey Optimizer,Group Retail,Malaysia,React/Node
+GammaShield,Fraud Sentinel,Risk & Compliance,carol@example.com,Carol Wong,Real-time Fraud Pattern Detection,Group Compliance,Singapore,Kafka/Spark
+DeltaRisk,RegWatch,Risk & Compliance,david@example.com,David Lim,Regulatory Change Impact Analyzer,Group Legal,Thailand,Python/NLP
+EpsilonOps,ProcessMiner,Operational Efficiency,emily@example.com,Emily Ng,Intelligent Process Mining Dashboard,Group Operations,Singapore,Celonis/React
+ZetaCloud,CloudShift,Operational Efficiency,frank@example.com,Frank Lee,Legacy to Cloud Migration Planner,Group Infrastructure,Indonesia,AWS/Terraform
+EtaData,DataMesh,Data & Analytics,grace@example.com,Grace Koh,Enterprise Data Governance Platform,Group Data,Singapore,Snowflake/dbt
+ThetaViz,InsightHub,Data & Analytics,henry@example.com,Henry Patel,Executive Decision Intelligence Dashboard,Group Strategy,Singapore,Tableau/Python
+IotaChat,ChatGenius,Customer Experience,irene@example.com,Irene Soh,Context-Aware Customer Service Bot,Group Digital,Vietnam,LangChain/React
+KappaGuard,CompliBot,Risk & Compliance,james@example.com,James Ong,Automated Compliance Checking Engine,Group Risk,Singapore,Python/FastAPI
+LambdaFlow,WorkSmart,Operational Efficiency,karen@example.com,Karen Teo,Workforce Optimization & Scheduling,Group HR,Malaysia,OR-Tools/Vue
+MuAnalytics,PredictPro,Data & Analytics,leo@example.com,Leo Huang,Predictive Customer Churn Model,Group Analytics,Singapore,scikit-learn/Flask
+NuVault,SecureVault,Risk & Compliance,maya@example.com,Maya Singh,Zero-Trust Data Access Framework,Group Security,Singapore,HashiCorp/Go
+XiPortal,ClientView,Customer Experience,nathan@example.com,Nathan Yeo,360-Degree Client Relationship Portal,Group Wealth,Singapore,Next.js/GraphQL
+OmicronAI,DocuMind,Operational Efficiency,olivia@example.com,Olivia Tan,Intelligent Document Processing Pipeline,Group Ops,Thailand,AWS Textract/Python
+PiStream,StreamLine,Data & Analytics,peter@example.com,Peter Loh,Real-time Data Streaming Analytics,Group Tech,Singapore,Kafka/Flink
+RhoConnect,BranchLink,Customer Experience,rachel@example.com,Rachel Goh,Omnichannel Branch Experience Platform,Group Retail,Malaysia,React Native/Node
+SigmaRisk,RiskRadar,Risk & Compliance,sam@example.com,Sam Chong,Enterprise Risk Heatmap & Early Warning,Group Risk,Singapore,D3.js/Python
+TauBot,AutoOps,Operational Efficiency,tina@example.com,Tina Wu,IT Operations Automation Framework,Group Infra,Indonesia,Ansible/Python
+AppReview,Smart Review,Data & Analytics,uma@example.com,Uma Devi,Automated App Store Review Analysis,Group Digital,Singapore,Python/BERT

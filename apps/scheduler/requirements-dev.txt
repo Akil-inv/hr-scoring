@@ -1,0 +1,10 @@
+# Test dependencies for the scheduler.
+#
+# Kept separate from requirements.txt so the container image does not carry a
+# test framework it never runs — Trivy reports on what is installed, and an
+# unused dependency is surface area for no benefit.
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   pytest -v
+
+pytest==8.3.3

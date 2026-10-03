@@ -1,0 +1,1021 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+input AddCriterionInput {
+  description: String
+  guidanceText: String
+  maxScore: Int!
+  name: String!
+  parentId: String
+  requiresComment: Boolean! = false
+  scoreIncrement: Float! = 1
+  scoringAnchors: JSON
+  templateId: String!
+  weight: Float! = 1
+}
+
+input AddJudgeInput {
+  judgeId: String!
+  reason: String!
+  sessionId: String!
+}
+
+input AssignEventRoleInput {
+  eventId: String!
+  role: String!
+  userId: String!
+}
+
+enum AuditAction {
+  CREATE
+  DELETE
+  UPDATE
+}
+
+type AuditLogEntry {
+  action: AuditAction!
+  createdAt: DateTime!
+  entityId: String!
+  entityType: String!
+  eventId: String
+  id: String!
+  newValues: JSON
+  oldValues: JSON
+  reason: String
+  user: AuditUser
+  userId: String!
+}
+
+type AuditUser {
+  email: String!
+  id: String!
+  role: String!
+}
+
+input CancelSessionInput {
+  reason: String!
+  sessionId: String!
+}
+
+input ChangeRoomInput {
+  newRoomId: String!
+  reason: String!
+  sessionId: String!
+}
+
+enum ConflictDeclStatus {
+  ACTIVE
+  RESOLVED
+}
+
+type ConflictEntity {
+  createdAt: DateTime!
+  declaredByEmail: String!
+  eventId: String!
+  id: String!
+  judgeId: String!
+  judgeName: String!
+  reason: String!
+  resolvedAt: DateTime
+  resolvedByEmail: String
+  source: ConflictSource!
+  status: ConflictDeclStatus!
+  teamId: String!
+  teamName: String!
+}
+
+enum ConflictSource {
+  ADMIN_IMPOSED
+  SELF_DECLARED
+}
+
+input CreateEventInput {
+  description: String
+  endDate: DateTime!
+  judgingEnd: DateTime
+  judgingStart: DateTime
+  location: String
+  maxJudgesPerTeam: Int! = 5
+  minJudgesPerTeam: Int! = 3
+  name: String!
+  presentationDurationMinutes: Int! = 10
+  qaDurationMinutes: Int! = 5
+  scoringDurationMinutes: Int! = 3
+  sessionDurationMinutes: Int! = 20
+  startDate: DateTime!
+  timezone: String! = "UTC"
+  transitionBufferMinutes: Int! = 2
+}
+
+input CreateJudgeInput {
+  designation: String
+  email: String!
+  eventId: String!
+  isPanelChairEligible: Boolean! = false
+  judgeTier: String
+  judgeType: JudgeType!
+  maxSessions: Int! = 10
+  name: String!
+  organisation: String
+}
+
+input CreateRoomInput {
+  capacity: Int
+  eventId: String!
+  hasVideoConferencing: Boolean! = false
+  isVirtual: Boolean! = false
+  locationDescription: String
+  name: String!
+}
+
+input CreateScoringTemplateInput {
+  description: String
+  eventId: String!
+  name: String!
+}
+
+input CreateTeamInput {
+  country: String
+  department: String
+  eventId: String!
+  name: String!
+  organisation: String
+  presentationMode: PresentationMode! = IN_PERSON
+  problemStatement: String
+  projectName: String!
+  solutionSummary: String
+  teamLeadEmail: String!
+  teamLeadName: String!
+  techStack: String
+  trackId: String
+  useCaseTitle: String
+  useCategory: String
+  vendorTools: String
+}
+
+input CreateTrackInput {
+  description: String
+  eventId: String!
+  name: String!
+}
+
+input CreateUserInput {
+  email: String!
+  globalRole: String
+  name: String!
+  password: String!
+  phone: String
+}
+
+type CriterionAverage {
+  average: Float!
+  criterionId: String!
+  criterionName: String!
+  maxScore: Int!
+}
+
+type CriterionScoreEntity {
+  comment: String
+  criterionId: String!
+  criterionName: String!
+  displayOrder: Int
+  guidanceText: String
+  id: String!
+  maxScore: Int!
+  requiresComment: Boolean!
+  score: Int
+}
+
+input CriterionScoreInput {
+  comment: String
+  criterionId: String!
+  score: Int!
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+input DeclareConflictInput {
+  eventId: String!
+  judgeId: String!
+  reason: String!
+  source: ConflictSource! = ADMIN_IMPOSED
+  teamId: String!
+}
+
+type EventEntity {
+  createdAt: DateTime!
+  description: String
+  endDate: DateTime!
+  id: String!
+  judgingEnd: DateTime
+  judgingStart: DateTime
+  location: String
+  maxJudgesPerTeam: Int!
+  minJudgesPerTeam: Int!
+  name: String!
+  presentationDurationMinutes: Int!
+  qaDurationMinutes: Int!
+  scoringDurationMinutes: Int!
+  sessionDurationMinutes: Int!
+  startDate: DateTime!
+  status: EventStatus!
+  timezone: String!
+  transitionBufferMinutes: Int!
+  updatedAt: DateTime!
+}
+
+enum EventStatus {
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+  DRAFT
+}
+
+type EventUserEntity {
+  email: String!
+  globalRole: String!
+  name: String!
+  role: String!
+  userId: String!
+}
+
+enum ExpertiseLevel {
+  PRIMARY
+  SECONDARY
+}
+
+input GenerateScheduleInput {
+  eventId: String!
+  guided: Boolean! = false
+  maxJudgesPerTeam: Int! = 5
+  minJudgesPerTeam: Int! = 3
+}
+
+input GenerateTimeSlotsInput {
+  breakDurationMinutes: Int
+  date: DateTime!
+  eventId: String!
+  lunchEnd: String
+  lunchStart: String
+  operatingEnd: String!
+  operatingStart: String!
+  sessionDurationMinutes: Int
+  unavailableRooms: [RoomHalfDayInput!]
+}
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
+"""
+scalar JSON
+
+type JudgeAvailabilityEntity {
+  date: DateTime!
+  endTime: DateTime!
+  id: String!
+  startTime: DateTime!
+}
+
+type JudgeEntity {
+  availability: [JudgeAvailabilityEntity!]
+  availabilityCount: Int!
+  conflictCount: Int!
+  createdAt: DateTime!
+  designation: String
+  email: String!
+  eventId: String!
+  expertise: [JudgeExpertiseEntity!]
+  id: String!
+  isPanelChairEligible: Boolean!
+  judgeTier: String
+  judgeType: JudgeType!
+  maxSessions: Int!
+  name: String!
+  organisation: String
+  phone: String
+  status: JudgeStatus!
+}
+
+type JudgeExpertiseEntity {
+  expertiseLevel: ExpertiseLevel!
+  id: String!
+  trackId: String!
+  trackName: String
+}
+
+type JudgeLink {
+  email: String!
+  judgeId: String!
+  link: String!
+  name: String!
+  phone: String
+  sessionCount: Int!
+  token: String!
+}
+
+type JudgeMessageEntity {
+  body: String!
+  id: String!
+  judgeId: String!
+  judgeName: String!
+  sentAt: DateTime!
+  sentByName: String!
+}
+
+enum JudgeStatus {
+  ACTIVE
+  UNAVAILABLE
+  WITHDRAWN
+}
+
+enum JudgeType {
+  BUSINESS
+  DOMAIN
+  EXECUTIVE
+  INNOVATION
+  TECHNICAL
+}
+
+type JudgingRoundType {
+  advanceCount: Int
+  allowedTiers: [String!]!
+  eventId: String!
+  id: String!
+  name: String!
+  roundNumber: Int!
+  status: String!
+  teamCount: Int
+}
+
+type LoadRubricResult {
+  categoriesCreated: Int!
+  rowsCreated: Int!
+  templateId: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+type LoginResponse {
+  accessToken: String!
+  user: UserResponse!
+}
+
+input MarkAbsentInput {
+  eventId: String!
+  judgeId: String!
+  reason: String!
+}
+
+type MessageResult {
+  sent: Int!
+}
+
+type Mutation {
+  activateScoringTemplate(id: String!): ScoringTemplateEntity!
+  addCriterion(input: AddCriterionInput!): ScoringCriterionEntity!
+  addJudgeToSession(input: AddJudgeInput!): OperationResult!
+  approveRankings(eventId: String!, trackId: String): RankingOutput
+  assignEventRole(input: AssignEventRoleInput!): Boolean!
+  calculateRankings(eventId: String!, trackId: String): RankingOutput!
+  cancelSession(input: CancelSessionInput!): OperationResult!
+  changeRoom(input: ChangeRoomInput!): OperationResult!
+  clearTimeSlots(date: String!, eventId: String!): Boolean!
+  createEvent(input: CreateEventInput!): EventEntity!
+  createJudge(input: CreateJudgeInput!): JudgeEntity!
+  createRoom(input: CreateRoomInput!): RoomEntity!
+  createScoringTemplate(input: CreateScoringTemplateInput!): ScoringTemplateEntity!
+  createTeam(input: CreateTeamInput!): TeamEntity!
+  createTrack(input: CreateTrackInput!): TrackEntity!
+  createUser(input: CreateUserInput!): UserEntity!
+  declareConflict(input: DeclareConflictInput!): ConflictEntity!
+  deleteEvent(id: String!): EventEntity!
+  deleteJudge(id: String!): JudgeEntity!
+  deleteRoom(id: String!): RoomEntity!
+  deleteTeam(id: String!): TeamEntity!
+  deleteTrack(id: String!): TrackEntity!
+  deleteUser(userId: String!): Boolean!
+  generateSchedule(input: GenerateScheduleInput!): ScheduleResult!
+  generateTimeSlots(input: GenerateTimeSlotsInput!): [TimeSlotEntity!]!
+  loadStandardRubric(eventId: String!): LoadRubricResult!
+  lockScorecard(scorecardId: String!): ScorecardEntity!
+  login(input: LoginInput!): LoginResponse!
+  markJudgeAbsent(input: MarkAbsentInput!): OperationResult!
+  messageJudges(body: String!, eventId: String!, judgeIds: [String!]!): MessageResult!
+  publishRankings(eventId: String!, trackId: String): RankingOutput
+  register(input: RegisterInput!): UserResponse!
+  removeCriterion(id: String!): Boolean!
+  removeEventRole(eventId: String!, userId: String!): Boolean!
+  removeJudge(input: RemoveJudgeInput!): OperationResult!
+  reopenScorecard(reason: String!, scorecardId: String!): ScorecardEntity!
+  reorderCriteria(inputs: [ReorderCriterionInput!]!): Boolean!
+  reorderTracks(inputs: [ReorderTrackInput!]!): [TrackEntity!]!
+  rescheduleSession(input: RescheduleInput!): OperationResult!
+  resetSchedule(eventId: String!): Boolean!
+  resetUserPassword(newPassword: String!, userId: String!): Boolean!
+  resolveConflict(id: String!): ConflictEntity!
+  saveScheduleSessions(inputs: [SaveScheduleInput!]!): [SessionEntity!]!
+  saveScorecardDraft(input: SaveScorecardInput!): ScorecardEntity!
+  setJudgeAvailability(input: SetJudgeAvailabilityInput!): JudgeAvailabilityEntity!
+  setJudgeBreak(input: SetJudgeBreakInput!): OperationResult!
+  setJudgeExpertise(input: SetJudgeExpertiseInput!): JudgeExpertiseEntity!
+  setRoomAvailability(date: DateTime!, eventId: String!, roomId: String!, session: String!, unavailable: Boolean!): OperationOk!
+  submitScorecard(input: SubmitScorecardInput!): ScorecardEntity!
+  swapJudge(input: SwapJudgeInput!): OperationResult!
+  swapRooms(input: SwapRoomsInput!): OperationResult!
+  swapSessions(input: SwapSessionsInput!): OperationResult!
+  swapTeams(sessionIdA: String!, sessionIdB: String!): OperationResult!
+  updateCriterion(id: String!, input: UpdateCriterionInput!): ScoringCriterionEntity!
+  updateEvent(id: String!, input: UpdateEventInput!): EventEntity!
+  updateJudge(id: String!, input: UpdateJudgeInput!): JudgeEntity!
+  updateRoom(id: String!, input: UpdateRoomInput!): RoomEntity!
+  updateScoringTemplate(id: String!, input: UpdateScoringTemplateInput!): ScoringTemplateEntity!
+  updateSessionStage(input: UpdateStageInput!): OperationResult!
+  updateTeam(id: String!, input: UpdateTeamInput!): TeamEntity!
+  updateTrack(id: String!, input: UpdateTrackInput!): TrackEntity!
+}
+
+type MyEvent {
+  id: String!
+  name: String!
+  role: String!
+  status: String!
+}
+
+type OperationOk {
+  success: Boolean!
+}
+
+type OperationResult {
+  message: String!
+  success: Boolean!
+  warnings: [String!]!
+}
+
+type OutstandingScoring {
+  inProgress: Int!
+  judgeEmail: String!
+  judgeId: String!
+  judgeName: String!
+  judgePhone: String
+  notStarted: Int!
+  oldestSessionAt: String
+  outstanding: Int!
+  teams: [String!]!
+}
+
+enum PresentationMode {
+  IN_PERSON
+  VIRTUAL
+}
+
+type Query {
+  auditLogsByEntity(entityId: String!, entityType: String!): [AuditLogEntry!]!
+  auditLogsByEvent(eventId: String!, skip: Float! = 0, take: Float! = 50): [AuditLogEntry!]!
+  conflicts(eventId: String!): [ConflictEntity!]!
+  conflictsByJudge(judgeId: String!): [ConflictEntity!]!
+  conflictsByTeam(teamId: String!): [ConflictEntity!]!
+  event(id: String!): EventEntity!
+  eventUsers(eventId: String!): [EventUserEntity!]!
+  events: [EventEntity!]!
+  findReplacementJudges(sessionId: String!): [ReplacementJudge!]!
+  health: String!
+  judge(id: String!): JudgeEntity!
+  judgeLinks(eventId: String!): [JudgeLink!]!
+  judgeMessages(eventId: String!): [JudgeMessageEntity!]!
+  judges(eventId: String!, judgeType: String, status: String): [JudgeEntity!]!
+  judgingRounds(eventId: String!): [JudgingRoundType!]!
+  me: UserResponse!
+  myEvents: [MyEvent!]!
+  outstandingScoring(eventId: String!): [OutstandingScoring!]!
+  rankings(eventId: String!, trackId: String): RankingOutput
+  room(id: String!): RoomEntity!
+  roomUnavailability(eventId: String!): [RoomUnavailabilityEntity!]!
+  rooms(eventId: String!): [RoomEntity!]!
+  scorecard(id: String!): ScorecardEntity!
+  scorecardsByEvent(eventId: String!): [ScorecardEntity!]!
+  scorecardsByJudge(eventId: String!, judgeId: String!): [ScorecardEntity!]!
+  scorecardsByTeam(teamId: String!): [ScorecardEntity!]!
+  scoringLockState(eventId: String!): ScoringLockState!
+  scoringTemplate(id: String!): ScoringTemplateEntity!
+  scoringTemplates(eventId: String!): [ScoringTemplateEntity!]!
+  session(id: String!): SessionEntity!
+  sessionHealthCheck(eventId: String!): [SessionHealthCheck!]!
+  sessions(eventId: String!): [SessionEntity!]!
+  team(id: String!): TeamEntity!
+  teams(eventId: String!, status: String, trackId: String): [TeamEntity!]!
+  timeSlots(date: DateTime, eventId: String!): [TimeSlotEntity!]!
+  track(id: String!): TrackEntity!
+  tracks(eventId: String!): [TrackEntity!]!
+  users: [UserEntity!]!
+}
+
+type RankingOutput {
+  calculatedAt: String
+  eventId: String!
+  rankings: [TeamRanking!]!
+  status: RankingStatus!
+  teamsRanked: Int!
+  teamsWithIncompleteScores: Int!
+  trackId: String
+  trackName: String
+  warnings: [String!]!
+}
+
+enum RankingStatus {
+  APPROVED
+  CALCULATING
+  PROVISIONAL
+  PUBLISHED
+}
+
+input RegisterInput {
+  email: String!
+  password: String!
+  role: Role!
+}
+
+input RemoveJudgeInput {
+  judgeId: String!
+  sessionId: String!
+}
+
+input ReorderCriterionInput {
+  displayOrder: Int!
+  id: String!
+}
+
+input ReorderTrackInput {
+  displayOrder: Int!
+  id: String!
+}
+
+type ReplacementJudge {
+  currentLoad: Int!
+  hasConflict: Boolean!
+  isAvailable: Boolean!
+  isBusyInSlot: Boolean!
+  judgeId: String!
+  judgeName: String!
+  judgeType: String!
+  maxSessions: Int!
+  score: Int!
+}
+
+input RescheduleInput {
+  newRoomId: String
+  newTimeSlotId: String!
+  reason: String!
+  sessionId: String!
+}
+
+enum Role {
+  ADMIN
+  AUDITOR
+  COORDINATOR
+  JUDGE
+  PANEL_CHAIR
+  SUPER_ADMIN
+  TEAM_REP
+}
+
+type RoomEntity {
+  capacity: Int
+  createdAt: DateTime!
+  eventId: String!
+  hasVideoConferencing: Boolean!
+  id: String!
+  isVirtual: Boolean!
+  locationDescription: String
+  name: String!
+  status: RoomStatus!
+}
+
+input RoomHalfDayInput {
+  reason: String
+  roomId: String!
+  session: String!
+}
+
+enum RoomStatus {
+  ACTIVE
+  UNAVAILABLE
+}
+
+type RoomUnavailabilityEntity {
+  date: DateTime!
+  id: String!
+  reason: String
+  roomId: String!
+  session: String!
+}
+
+input SaveScheduleInput {
+  eventId: String!
+  judgeIds: [String!]!
+  roomId: String!
+  teamId: String!
+  timeSlotId: String!
+}
+
+input SaveScorecardInput {
+  areasForImprovement: String
+  overallStrengths: String
+  recommendation: String
+  scorecardId: String!
+  scores: [CriterionScoreInput!]!
+}
+
+type ScheduleResult {
+  qualityScore: Float!
+  sessions: [SessionAssignment!]!
+  solveTimeSeconds: Float!
+  success: Boolean!
+  unscheduledTeams: [String!]!
+  warnings: [String!]!
+}
+
+type ScorecardEntity {
+  areasForImprovement: String
+  conflictConfirmed: Boolean!
+  criterionScores: [CriterionScoreEntity!]!
+  id: String!
+  judgeId: String!
+  judgeName: String!
+  overallStrengths: String
+  projectName: String!
+  recommendation: String
+  reopenReason: String
+  sessionId: String!
+  status: ScorecardStatus!
+  submittedAt: DateTime
+  teamId: String!
+  teamName: String!
+  totalScore: Int
+}
+
+enum ScorecardStatus {
+  DRAFT
+  LOCKED
+  NOT_STARTED
+  REOPENED
+  RESUBMITTED
+  SUBMITTED
+}
+
+type ScoringCriterionEntity {
+  childrenTotal: Int!
+  description: String
+  displayOrder: Int!
+  guidanceText: String
+  id: String!
+  maxScore: Int!
+  name: String!
+  parentId: String
+  requiresComment: Boolean!
+  scoreIncrement: Float!
+  scoringAnchors: JSON
+  templateId: String!
+  weight: Float!
+}
+
+type ScoringLockState {
+  locked: Boolean!
+  submittedCount: Int!
+}
+
+type ScoringTemplateEntity {
+  createdAt: DateTime!
+  criteria: [ScoringCriterionEntity!]!
+  criteriaTotal: Int!
+  description: String
+  eventId: String!
+  id: String!
+  maxTotal: Int!
+  name: String!
+  status: ScoringTemplateStatus!
+}
+
+enum ScoringTemplateStatus {
+  ACTIVE
+  DRAFT
+  LOCKED
+}
+
+type SessionAssignment {
+  judgeIds: [String!]!
+  judgeNames: [String!]!
+  roomId: String!
+  roomName: String!
+  slotDate: String!
+  slotEnd: String!
+  slotId: String!
+  slotStart: String!
+  teamId: String!
+  teamName: String!
+}
+
+type SessionEntity {
+  actualEnd: DateTime
+  actualStart: DateTime
+  delayMinutes: Int!
+  delayReason: String
+  eventId: String!
+  id: String!
+  judges: [SessionJudgeEntity!]!
+  judgesOnBreak: Int!
+  notes: String
+  projectName: String!
+  roomId: String!
+  roomName: String!
+  scheduledEnd: DateTime
+  scheduledStart: DateTime
+  scorecardsSubmitted: Int!
+  scorecardsTotal: Int!
+  stage: SessionStage!
+  teamCountry: String
+  teamId: String!
+  teamName: String!
+  teamPlatform: String
+  timeSlotId: String!
+  trackName: String
+}
+
+type SessionHealthCheck {
+  isHealthy: Boolean!
+  issues: [String!]!
+  judgesAssigned: Int!
+  judgesRequired: Int!
+  roomName: String!
+  sessionId: String!
+  stage: String!
+  teamName: String!
+}
+
+type SessionJudgeEntity {
+  attended: Boolean!
+  id: String!
+  judgeId: String!
+  judgeName: String!
+  judgeTier: String
+  onBreak: Boolean!
+}
+
+enum SessionStage {
+  AT_RISK
+  CANCELLED
+  COMPLETED
+  DELAYED
+  IN_PROGRESS
+  JUDGES_PRESENT
+  NO_SHOW
+  QA
+  READY
+  RESCHEDULED
+  SCHEDULED
+  SCORING
+  TEAM_CHECKED_IN
+}
+
+input SetJudgeAvailabilityInput {
+  date: DateTime!
+  endTime: String!
+  judgeId: String!
+  startTime: String!
+}
+
+input SetJudgeBreakInput {
+  judgeId: String!
+  onBreak: Boolean!
+  sessionId: String!
+}
+
+input SetJudgeExpertiseInput {
+  expertiseLevel: ExpertiseLevel! = PRIMARY
+  judgeId: String!
+  trackId: String!
+}
+
+enum SlotType {
+  BLOCKED
+  BREAK
+  CEREMONY
+  JUDGING
+  LUNCH
+}
+
+input SubmitScorecardInput {
+  conflictConfirmed: Boolean!
+  scorecardId: String!
+}
+
+input SwapJudgeInput {
+  newJudgeId: String!
+  oldJudgeId: String!
+  reason: String!
+  sessionId: String!
+}
+
+input SwapRoomsInput {
+  reason: String!
+  sessionIdA: String!
+  sessionIdB: String!
+}
+
+input SwapSessionsInput {
+  sessionIdA: String!
+  sessionIdB: String!
+}
+
+type TeamEntity {
+  country: String
+  createdAt: DateTime!
+  department: String
+  eligibilityNotes: String
+  eventId: String!
+  id: String!
+  members: [TeamMemberEntity!]
+  name: String!
+  organisation: String
+  platform: String
+  presentationMode: PresentationMode!
+  problemStatement: String
+  projectName: String!
+  solutionSummary: String
+  status: TeamStatus!
+  teamLeadEmail: String!
+  teamLeadName: String!
+  techStack: String
+  trackId: String
+  trackName: String
+  useCaseTitle: String
+  useCategory: String
+  vendorTools: String
+}
+
+type TeamMemberEntity {
+  email: String
+  id: String!
+  name: String!
+  roleInTeam: String
+}
+
+type TeamRanking {
+  aggregatedScore: Float!
+  criterionAverages: [CriterionAverage!]!
+  expectedJudgeCount: Int!
+  judgeCount: Int!
+  judgeNames: String
+  projectName: String!
+  rankPosition: Int!
+  teamId: String!
+  teamName: String!
+  tieBreakNote: String
+  tied: Boolean!
+  trackId: String
+  trackName: String
+}
+
+enum TeamStatus {
+  COMPLETED
+  DISQUALIFIED
+  DRAFT
+  ELIGIBLE
+  JUDGED
+  SCHEDULED
+  SUBMITTED
+}
+
+type TimeSlotEntity {
+  createdAt: DateTime!
+  date: DateTime!
+  endTime: DateTime!
+  eventId: String!
+  id: String!
+  slotType: SlotType!
+  startTime: DateTime!
+}
+
+type TrackEntity {
+  createdAt: DateTime!
+  description: String
+  displayOrder: Int!
+  eventId: String!
+  id: String!
+  name: String!
+  status: TrackStatus!
+  teamCount: Int!
+  updatedAt: DateTime!
+}
+
+enum TrackStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+input UpdateCriterionInput {
+  description: String
+  guidanceText: String
+  maxScore: Int
+  name: String
+  parentId: String
+  requiresComment: Boolean
+  scoreIncrement: Float
+  scoringAnchors: JSON
+  weight: Float
+}
+
+input UpdateEventInput {
+  description: String
+  endDate: DateTime
+  judgingEnd: DateTime
+  judgingStart: DateTime
+  location: String
+  maxJudgesPerTeam: Int
+  minJudgesPerTeam: Int
+  name: String
+  presentationDurationMinutes: Int
+  qaDurationMinutes: Int
+  scoringDurationMinutes: Int
+  sessionDurationMinutes: Int
+  startDate: DateTime
+  status: EventStatus
+  timezone: String
+  transitionBufferMinutes: Int
+}
+
+input UpdateJudgeInput {
+  designation: String
+  email: String
+  isPanelChairEligible: Boolean
+  judgeType: JudgeType
+  maxSessions: Int
+  name: String
+  organisation: String
+  status: JudgeStatus
+}
+
+input UpdateRoomInput {
+  capacity: Int
+  hasVideoConferencing: Boolean
+  isVirtual: Boolean
+  locationDescription: String
+  name: String
+  status: RoomStatus
+}
+
+input UpdateScoringTemplateInput {
+  description: String
+  name: String
+  status: ScoringTemplateStatus
+}
+
+input UpdateStageInput {
+  notes: String
+  sessionId: String!
+  stage: String!
+}
+
+input UpdateTeamInput {
+  country: String
+  department: String
+  eligibilityNotes: String
+  name: String
+  organisation: String
+  presentationMode: PresentationMode
+  problemStatement: String
+  projectName: String
+  solutionSummary: String
+  status: TeamStatus
+  teamLeadEmail: String
+  teamLeadName: String
+  techStack: String
+  trackId: String
+  useCaseTitle: String
+  useCategory: String
+  vendorTools: String
+}
+
+input UpdateTrackInput {
+  description: String
+  name: String
+  status: TrackStatus
+}
+
+type UserEntity {
+  email: String!
+  id: String!
+  name: String!
+  role: String!
+}
+
+type UserResponse {
+  email: String!
+  id: String!
+  role: Role!
+}

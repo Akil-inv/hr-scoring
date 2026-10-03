@@ -1,0 +1,15 @@
+{
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@sonar/scan": "^5.0.0",
+    "@types/pg": "^8.21.0",
+    "pg": "^8.23.0"
+  },
+  "name": "hackathon-platform",
+  "private": true,
+  "scripts": {
+    "test": "cd apps/api && npx jest",
+    "test:cov": "cd apps/api && npx jest --coverage",
+    "test:py": "cd apps/scheduler && python3 -m pytest -v"
+  }
+}

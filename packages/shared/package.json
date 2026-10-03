@@ -1,0 +1,7 @@
+{
+  "name": "@hackathon/shared",
+  "version": "0.1.0",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "devDependencies": { "typescript": "^5.5.0" }
+}

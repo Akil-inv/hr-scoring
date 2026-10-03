@@ -1,0 +1,26 @@
+# Dependencies and builds
+node_modules/
+dist/
+.next/
+.venv/
+__pycache__/
+*.pyc
+coverage/
+
+# Secrets and local overrides
+.env
+*.env.local
+docker-compose.override.yml
+
+# Logs and scratch
+*.log
+.dev-logs/
+.DS_Store
+*.bak-*
+.quality-engine/
+apps/api/create-*.js
+apps/api/fix-*.js
+
+# SonarQube
+.scannerwork/
+sonar-issues-page-*.json
