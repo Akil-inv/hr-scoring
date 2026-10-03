@@ -12,7 +12,11 @@ export class AuthService {
   ) {}
 
   async login(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    // Case-insensitive: an admin created as you@example.com must be able to
+    // sign in as You@Example.com.
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: email.trim(), mode: 'insensitive' } },
+    });
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
     }
