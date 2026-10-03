@@ -37,6 +37,7 @@ FIXED_SHEETS = {
         ("Timezone", False, 20, "Where the interviews happen, e.g. Asia/Singapore. Every time in this workbook is in this timezone. Default Asia/Singapore."),
         ("Minimum panel size", False, 12, "Fewest judges an interview needs. Slots with fewer available judges are left without a panel. Default 2."),
         ("Admin emails", False, 40, "Comma-separated. Each must already have a login (Users & roles); they become admins of this event."),
+        ("Support question", False, 22, "Asked of every judge as Yes / No, e.g. Support for LAP. Leave blank for none."),
     ],
     "Day template": [
         ("Block", True, 10, "A name for the half-day block, e.g. AM or PM. The Availability sheet uses the same names."),
@@ -51,6 +52,13 @@ FIXED_SHEETS = {
         ("Organisation", False, 20, None),
         ("Designation", False, 22, None),
         ("Tier", False, 8, "Optional label: L1, L2, L3, L4, PS or V."),
+    ],
+    "Rubric": [
+        ("Dimension", True, 24, "One row per dimension. Judges rate each 1 to 5 and must comment on each."),
+        ("Descriptor", False, 34, "What the dimension is about. Shown to judges."),
+        ("Score: 1 (Low)", True, 40, "What a 1 looks like. 2 sits between 1 and 3."),
+        ("Score: 3 (Moderate)", True, 40, "What a 3 looks like. 4 sits between 3 and 5."),
+        ("Score: 5 (High)", True, 40, "What a 5 looks like."),
     ],
     "Criteria": [
         ("Criterion", True, 44, "A category (leave Parent blank) or a row inside one."),
@@ -82,7 +90,11 @@ README = [
     ("Dark blue header = required column. Light blue header = optional. Hover a header for notes.", None),
     ("Yellow cells are examples. Overwrite or delete them before uploading.", None),
     ("Keep the sheet names and column headers as they are. Times are 24-hour HH:MM.", None),
-    ("Criteria is optional. With no Criteria, the standard UOB rubric is used.", None),
+    ("", None),
+    ("Rubric", "head"),
+    ("The Rubric sheet holds the interview rubric: each dimension is rated 1 to 5 with a comment, and the candidate's score is the average rating out of 5. It comes filled in with the LAP rubric; edit it for another programme.", None),
+    ("Support question on the Event sheet (e.g. Support for LAP) is asked of every judge as Yes / No.", None),
+    ("Criteria is an alternative points rubric (categories adding up to 100). Use either Rubric or Criteria, not both. With neither, the LAP rubric is used.", None),
 ]
 
 TEMPLATE_DAY = (
@@ -97,6 +109,30 @@ TEMPLATE_DAY = (
     + [("PM", None, "Interview", 20)] * 4
     + [("PM", None, "Calibration", 10)]
 )
+
+
+LAP_RUBRIC = [
+    ("Career Aspirations", "Clarity and ambition regarding future roles and career trajectory",
+     "No clear career goals; lacks interest in leadership or generalist roles.",
+     "Expresses some interest in leadership but lacks clarity or commitment to generalist path.",
+     "Strong aspiration for senior leadership; clearly articulates interest in generalist roles and long-term growth."),
+    ("Drive and Motivation", "Energy, initiative, and commitment to personal and organizational goals",
+     "Passive attitude; limited examples of initiative or ownership.",
+     "Shows moderate drive; some examples of taking initiative or leading efforts.",
+     "Highly driven; consistently demonstrates ownership, resilience, and proactive leadership."),
+    ("Mobility & Rotation Readiness", "Willingness and preparedness for new roles or rotations",
+     "Unwilling to relocate or rotate; prefers stability.",
+     "Open to some mobility; hesitant about full rotation model.",
+     "Fully open to geographic and functional rotations; embraces diverse experiences."),
+    ("Learning Agility & Adaptability", "Ability to learn quickly and adapt to new situations",
+     "Resistant to change; struggles with unfamiliar situations.",
+     "Some adaptability; has handled change with mixed success.",
+     "Highly agile; thrives in new environments and learns quickly from feedback."),
+    ("Enterprise Perspective", "Understanding and acting for the broader organization",
+     "Narrow focus on own function; lacks cross-functional awareness.",
+     "Some awareness of broader business; limited cross-functional experience.",
+     "Strong enterprise mindset; demonstrates strategic thinking and cross-functional collaboration."),
+]
 
 
 def style_header(ws, cols):
@@ -143,7 +179,7 @@ def build(data: dict, example: bool) -> Workbook:
         c.alignment = Alignment(wrap_text=True, vertical="top")
     readme.column_dimensions["A"].width = 120
 
-    order = ["Event", "Day template", "Judges", "Availability", "Criteria"]
+    order = ["Event", "Day template", "Judges", "Availability", "Rubric", "Criteria"]
     for name in order:
         ws = wb.create_sheet(name)
         if name == "Availability":
@@ -165,13 +201,20 @@ def build(data: dict, example: bool) -> Workbook:
             choices(ws, "F2:F500", ["L1", "L2", "L3", "L4", "PS", "V"])
         if name == "Criteria":
             choices(ws, "E2:E200", ["Y", "N"])
+        if name == "Rubric":
+            # The real rubric, not an example: no yellow, and wrapped to read.
+            for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+                for c in row:
+                    c.fill = PatternFill(fill_type=None)
+                    c.alignment = Alignment(wrap_text=True, vertical="top")
     return wb
 
 
 def template_data() -> dict:
     cols = ["2026-10-19 AM", "2026-10-19 PM", "2026-10-20 AM", "2026-10-20 PM"]
     return {
-        "Event": [("UOB Interviews October 2026", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "admin@example.com")],
+        "Event": [("UOB Interviews October 2026", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "admin@example.com", "Support for LAP")],
+        "Rubric": LAP_RUBRIC,
         "Day template": TEMPLATE_DAY,
         "Judges": [
             ("Dean Tan", "dean@example.com", "+6591234567", "UOB", "Managing Director", "L2"),
@@ -242,7 +285,8 @@ def sample_data() -> dict:
             row.append(SAMPLE_PLAN.get((d, b), {}).get(key, "No"))
         availability.append((email, *row))
     return {
-        "Event": [("October Graduate Interviews", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "")],
+        "Event": [("October Graduate Interviews", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "", "Support for LAP")],
+        "Rubric": LAP_RUBRIC,
         "Day template": TEMPLATE_DAY,
         "Judges": [(n, e, f"+659000{i:04d}", "UOB", "Panel member", "L3") for i, (n, e) in enumerate(JUDGES, 1)],
         "availability_columns": cols,

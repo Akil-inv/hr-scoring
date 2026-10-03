@@ -451,6 +451,12 @@ model ScoringTemplate {
   description String?
   maxTotal    Int                   @default(100) @map("max_total")
   status      ScoringTemplateStatus @default(DRAFT)
+  /// POINTS: categories of points adding up to maxTotal (hackathon rubric).
+  /// RATING: every criterion is rated on the same scale (e.g. 1-5) and the
+  /// candidate's score is the average rating.
+  scale           String  @default("POINTS")
+  /// Asked of every judge as Yes / No when set (e.g. "Support for LAP").
+  supportQuestion String? @map("support_question")
   createdAt   DateTime              @default(now()) @map("created_at")
   updatedAt   DateTime              @updatedAt @map("updated_at")
 
@@ -473,6 +479,8 @@ model ScoringCriterion {
   name            String
   description     String?
   maxScore        Int      @map("max_score")
+  /// Lowest score a judge may give. 0 for points rubrics, 1 for a 1-5 rating.
+  minScore        Int      @default(0) @map("min_score")
   weight          Decimal  @default(1.0) @db.Decimal(5, 2)
   displayOrder    Int      @default(0) @map("display_order")
   guidanceText    String?  @map("guidance_text")
@@ -614,6 +622,8 @@ model Scorecard {
   overallStrengths    String?         @map("overall_strengths")
   areasForImprovement String?         @map("areas_for_improvement")
   recommendation      String?
+  /// The judge's Yes / No to the rubric's support question, when it has one.
+  support             Boolean?
   conflictConfirmed   Boolean         @default(false) @map("conflict_confirmed")
   submittedAt         DateTime?       @map("submitted_at")
   lockedAt            DateTime?       @map("locked_at")
@@ -832,10 +842,31 @@ model TeamDecision {
   team      Team           @relation(fields: [teamId], references: [id])
   session   JudgingSession @relation(fields: [sessionId], references: [id])
   decidedBy User?          @relation("decided_by", fields: [decidedById], references: [id])
+  reports   DecisionReport[]
 
   @@index([eventId])
   @@index([sessionId])
   @@map("team_decisions")
+}
+
+/// The candidate's assessment report as a PDF, made when HR submits the final
+/// decision and kept as it was then. A record reopened and decided again gets
+/// a new revision; earlier ones are kept.
+model DecisionReport {
+  id         String   @id @default(uuid()) @db.Uuid
+  eventId    String   @map("event_id") @db.Uuid
+  decisionId String   @map("decision_id") @db.Uuid
+  teamId     String   @map("team_id") @db.Uuid
+  revision   Int
+  fileName   String   @map("file_name")
+  pdf        Bytes
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  decision TeamDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@unique([decisionId, revision])
+  @@index([eventId])
+  @@map("decision_reports")
 }
 
 /// The panel for one interview slot (interview events). Built from judges'

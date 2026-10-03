@@ -56,6 +56,8 @@ export interface WriteScoresParams {
   overallStrengths?: string;
   areasForImprovement?: string;
   recommendation?: string;
+  /** The judge's Yes / No to the rubric's support question. Omit to leave it. */
+  support?: boolean | null;
   submit?: boolean;
   /**
    * Only written when supplied. The portal does not ask a judge to confirm
@@ -98,6 +100,7 @@ export interface WriteScoresResult {
 interface Criterion {
   id: string;
   name: string;
+  minScore: number;
   maxScore: number;
   requiresComment: boolean;
   parentId: string | null;
@@ -177,6 +180,7 @@ export class ScoringCoreService {
       select: {
         id: true,
         name: true,
+        minScore: true,
         maxScore: true,
         requiresComment: true,
         parentId: true,
@@ -312,9 +316,10 @@ export class ScoringCoreService {
           `Score for "${criterion.name}" must be a whole number (got ${s.score}).`,
         );
       }
-      if (s.score < 0 || s.score > criterion.maxScore) {
+      const min = criterion.minScore ?? 0;
+      if (s.score < min || s.score > criterion.maxScore) {
         throw new BadRequestException(
-          `Score for "${criterion.name}" must be between 0 and ` +
+          `Score for "${criterion.name}" must be between ${min} and ` +
             `${criterion.maxScore} (got ${s.score}).`,
         );
       }
@@ -468,6 +473,13 @@ export class ScoringCoreService {
             );
           }
         }
+        // The rubric's Yes / No question, when it has one.
+        const support = params.support !== undefined ? params.support : scorecard.support;
+        if (template.supportQuestion && (support === null || support === undefined)) {
+          throw new BadRequestException(
+            `"${template.supportQuestion}" needs a Yes or No.`,
+          );
+        }
       }
 
       // TOTAL-1, TOTAL-2. Summed from storage, never from the payload. The
@@ -495,6 +507,7 @@ export class ScoringCoreService {
           overallStrengths: params.overallStrengths,
           areasForImprovement: params.areasForImprovement,
           recommendation: params.recommendation,
+          support: params.support === undefined ? undefined : params.support,
           // Written only when the caller actually asked someone (decision 4).
           conflictConfirmed:
             params.conflictConfirmed === undefined
@@ -588,6 +601,8 @@ export class ScoringCoreService {
           recommendation:
             params.recommendation !== undefined &&
             params.recommendation !== scorecard.recommendation,
+          support:
+            params.support !== undefined && params.support !== scorecard.support,
         }
       : undefined;
 

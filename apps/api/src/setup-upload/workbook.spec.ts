@@ -166,6 +166,42 @@ describe('checkWorkbook (interview setup)', () => {
   });
 });
 
+describe('Rubric sheet (1-5 ratings)', () => {
+  const HEAD = ['Dimension *', 'Descriptor', 'Score: 1 (Low) *', 'Score: 3 (Moderate) *', 'Score: 5 (High) *'];
+  const dim = (n: string) => [n, `About ${n}`, `${n} low`, `${n} moderate`, `${n} high`];
+
+  it('uses the LAP rubric and its question when no rubric is given', () => {
+    const r = checkWorkbook(book());
+    expect(r.summary.rubric).toBe('LAP rubric, 5 dimensions rated 1-5 (Rubric sheet empty)');
+    expect(r.summary.supportQuestion).toBe('Support for LAP');
+  });
+
+  it('reads dimensions and the support question', () => {
+    const ev = [[...EVENT[0], 'Support question'], [...EVENT[1], 'Recommend for programme']];
+    const r = checkWorkbook(book({ Event: ev, Rubric: [HEAD, dim('Drive'), dim('Agility'), dim('Mobility')] }));
+    expect(msgs(r, 'errors')).toEqual([]);
+    expect(r.summary.rubric).toBe('3 dimensions rated 1-5');
+    expect(r.summary.supportQuestion).toBe('Recommend for programme');
+    expect(r.workbook.rating[1]).toEqual({ row: 3, name: 'Agility', descriptor: 'About Agility', low: 'Agility low', moderate: 'Agility moderate', high: 'Agility high' });
+  });
+
+  it('needs every description, and at least three dimensions', () => {
+    const r = checkWorkbook(book({ Rubric: [HEAD, dim('Drive'), ['Agility', null, 'low', null, 'high']] }));
+    expect(msgs(r, 'errors')).toEqual([
+      'Rubric The rubric has 1 dimension. It needs at least 3.',
+      'Rubric:3 "Agility" needs a description for Score 3. Judges see these while scoring.',
+    ]);
+  });
+
+  it('refuses both rubric sheets at once', () => {
+    const r = checkWorkbook(book({
+      Rubric: [HEAD, dim('A'), dim('B'), dim('C')],
+      Criteria: [['Criterion *', 'Parent criterion', 'Max score *'], ['Impact', null, 100], ['Value', 'Impact', 100]],
+    }));
+    expect(msgs(r, 'errors')).toEqual(['Rubric Both the Rubric and the Criteria sheets are filled in. Use one: Rubric for 1-5 ratings, Criteria for points.']);
+  });
+});
+
 describe('cell parsing', () => {
   it('reads availability cells strictly', () => {
     expect(parseAvailability('Yes')).toEqual({ kind: 'ALL' });

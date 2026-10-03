@@ -104,6 +104,11 @@ export class JudgePortalController {
         overallStrengths: sc.overallStrengths,
         areasForImprovement: sc.areasForImprovement,
         recommendation: sc.recommendation,
+        // RATING rubrics (e.g. LAP 1-5) get the rating screen; supportQuestion
+        // is asked as Yes / No when set.
+        scale: (template as any)?.scale ?? 'POINTS',
+        supportQuestion: (template as any)?.supportQuestion ?? null,
+        support: (sc as any).support ?? null,
         submittedAt: sc.submittedAt,
         reopenReason: sc.reopenReason,
         flaggedForReview: (sc as any).flaggedForReview ?? false,
@@ -115,6 +120,9 @@ export class JudgePortalController {
           criterionId: cs.criterionId,
           criterionName: cs.criterion?.name,
           maxScore: cs.criterion?.maxScore,
+          minScore: (cs.criterion as any)?.minScore ?? 0,
+          description: cs.criterion?.description ?? null,
+          displayOrder: cs.criterion?.displayOrder ?? 0,
           guidanceText: cs.criterion?.guidanceText,
           requiresComment: cs.criterion?.requiresComment,
           scoringAnchors: cs.criterion?.scoringAnchors,
@@ -286,6 +294,7 @@ export class JudgePortalController {
       overallStrengths?: string;
       areasForImprovement?: string;
       recommendation?: string;
+      support?: boolean | null;
       submit?: boolean;
     },
   ) {
@@ -302,6 +311,7 @@ export class JudgePortalController {
       overallStrengths: body.overallStrengths,
       areasForImprovement: body.areasForImprovement,
       recommendation: body.recommendation,
+      support: typeof body.support === 'boolean' || body.support === null ? body.support : undefined,
       submit: body.submit === true,
       actorId: judge.id,
       expectedJudgeId: judge.id,

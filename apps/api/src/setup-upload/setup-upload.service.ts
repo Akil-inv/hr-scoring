@@ -3,7 +3,7 @@ import { AuditAction, Prisma } from '@prisma/client';
 import { randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { UOB_RUBRIC } from '../scoring-templates/uob-rubric';
+import { LAP_RUBRIC, RATING_MAX, RATING_MIN, RatingDimension, ratingAnchors } from '../scoring-templates/lap-rubric';
 import { checkWorkbook, CheckResult, Issue, ParsedWorkbook } from './workbook';
 
 /** What the upload page shows before anything is saved. */
@@ -218,13 +218,43 @@ export class SetupUploadService {
     };
   }
 
+  /**
+   * The event's rubric: the Criteria sheet's points rubric when given,
+   * otherwise a 1-5 rating rubric from the Rubric sheet, or the LAP rubric
+   * when neither sheet is filled in.
+   */
   private async createRubric(tx: Prisma.TransactionClient, eventId: string, wb: ParsedWorkbook) {
-    const fromSheet = wb.criteria.length > 0;
+    if (wb.criteria.length > 0) return this.createPointsRubric(tx, eventId, wb);
+    const fromSheet = wb.rating.length > 0;
+    const dims: RatingDimension[] = fromSheet ? wb.rating : LAP_RUBRIC.dimensions;
     const template = await tx.scoringTemplate.create({
       data: {
         eventId,
-        name: fromSheet ? `${wb.event!.name} rubric` : UOB_RUBRIC.name,
-        description: fromSheet ? 'From the setup upload' : UOB_RUBRIC.description,
+        name: fromSheet ? `${wb.event!.name} rubric` : LAP_RUBRIC.name,
+        description: fromSheet ? 'From the setup upload' : 'LAP HR interview rubric',
+        scale: 'RATING',
+        supportQuestion: wb.event?.supportQuestion ?? null,
+        maxTotal: RATING_MAX * dims.length,
+        status: 'ACTIVE',
+      },
+    });
+    // Every rating needs a comment: the comments are the record of why.
+    await tx.scoringCriterion.createMany({
+      data: dims.map((d, i) => ({
+        templateId: template.id, name: d.name, description: d.descriptor || null,
+        minScore: RATING_MIN, maxScore: RATING_MAX, weight: 1, displayOrder: i,
+        requiresComment: true, scoringAnchors: ratingAnchors(d),
+      })),
+    });
+  }
+
+  private async createPointsRubric(tx: Prisma.TransactionClient, eventId: string, wb: ParsedWorkbook) {
+    const template = await tx.scoringTemplate.create({
+      data: {
+        eventId,
+        name: `${wb.event!.name} rubric`,
+        description: 'From the setup upload',
+        supportQuestion: wb.event?.supportQuestion ?? null,
         // Activation's checks (categories total 100, rows fill each category)
         // already passed in the workbook check.
         status: 'ACTIVE',
@@ -236,33 +266,17 @@ export class SetupUploadService {
     // parent foreign key needs within one insert.
     const rows: Prisma.ScoringCriterionCreateManyInput[] = [];
     let order = 0;
-    if (fromSheet) {
-      for (const cat of wb.criteria.filter((c) => !c.parent)) {
-        const catId = randomUUID();
+    for (const cat of wb.criteria.filter((c) => !c.parent)) {
+      const catId = randomUUID();
+      rows.push({
+        id: catId, templateId: template.id, name: cat.name, maxScore: cat.maxScore, weight: 1,
+        displayOrder: order++, guidanceText: cat.guidance, requiresComment: cat.requiresComment,
+      });
+      for (const kid of wb.criteria.filter((c) => c.parent?.toLowerCase() === cat.name.toLowerCase())) {
         rows.push({
-          id: catId, templateId: template.id, name: cat.name, maxScore: cat.maxScore, weight: 1,
-          displayOrder: order++, guidanceText: cat.guidance, requiresComment: cat.requiresComment,
+          templateId: template.id, parentId: catId, name: kid.name, maxScore: kid.maxScore, weight: 1,
+          displayOrder: order++, guidanceText: kid.guidance, requiresComment: kid.requiresComment,
         });
-        for (const kid of wb.criteria.filter((c) => c.parent?.toLowerCase() === cat.name.toLowerCase())) {
-          rows.push({
-            templateId: template.id, parentId: catId, name: kid.name, maxScore: kid.maxScore, weight: 1,
-            displayOrder: order++, guidanceText: kid.guidance, requiresComment: kid.requiresComment,
-          });
-        }
-      }
-    } else {
-      for (const cat of UOB_RUBRIC.categories) {
-        const catId = randomUUID();
-        rows.push({
-          id: catId, templateId: template.id, name: cat.name, description: cat.description,
-          maxScore: cat.maxScore, weight: 1, displayOrder: order++,
-        });
-        for (const r of cat.rows) {
-          rows.push({
-            templateId: template.id, parentId: catId, name: r.name, maxScore: r.maxScore, weight: 1,
-            displayOrder: order++, guidanceText: r.guidanceText, requiresComment: r.requiresComment ?? false,
-          });
-        }
       }
     }
     await tx.scoringCriterion.createMany({ data: rows });

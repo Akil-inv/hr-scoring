@@ -16,6 +16,7 @@ if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC=
 $DC exec -T postgres psql -U hackathon -v ON_ERROR_STOP=1 << 'SQL'
 BEGIN;
 -- Delete in dependency order (checked against every foreign key)
+DELETE FROM decision_reports;
 DELETE FROM team_decisions;
 DELETE FROM judge_links;
 DELETE FROM judging_days;

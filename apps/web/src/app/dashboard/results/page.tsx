@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { useEventId } from '@/lib/event-store';
 import { dayLabel, messageOf } from '@/components/upload-common';
-import { CandidateRecord, DECISIONS, ReviewData, downloadResults, finalDecision } from '@/lib/review';
+import { CandidateRecord, DECISIONS, ReviewData, downloadDayReports, downloadReport, downloadResults, finalDecision, fmtScore, scoreTone } from '@/lib/review';
 
 /**
  * Results: candidates grouped by the HR decision, best consolidated score
@@ -42,6 +42,11 @@ export default function ResultsPage() {
     try { await downloadResults(eventId, token, which); } catch (e: any) { setError(e.message); }
     setBusy(null);
   };
+  const run = async (key: string, fn: () => Promise<void>) => {
+    setBusy(key);
+    try { await fn(); } catch (e: any) { setError(e.message); }
+    setBusy(null);
+  };
 
   if (!eventId) return <p className="text-sm text-slate-400">Choose an event first.</p>;
   if (error) return <div className="rounded-xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-red-300">{error}</div>;
@@ -59,8 +64,12 @@ export default function ResultsPage() {
         <div className="flex flex-wrap justify-end gap-2 shrink-0">
           {date !== 'ALL' && (
             <>
-              {records.some((r) => finalDecision(r)) && <a href={`/report/${eventId}/day/${date}`} target="_blank" rel="noreferrer"
-                className="px-3 py-2 rounded-lg border border-dark-500 text-sm text-slate-200 hover:border-accent/60">Reports for this day (PDF)</a>}
+              {records.some((r) => finalDecision(r)) && (
+                <button type="button" disabled={!!busy} onClick={() => run('ZIP', () => downloadDayReports(eventId, token, date))}
+                  className="px-3 py-2 rounded-lg border border-dark-500 text-sm text-slate-200 hover:border-accent/60 disabled:opacity-40">
+                  {busy === 'ZIP' ? 'Preparing…' : 'Reports for this day (PDF, zip)'}
+                </button>
+              )}
               <button type="button" disabled={!!busy} onClick={() => download(date)}
                 className="px-3 py-2 rounded-lg border border-dark-500 text-sm text-slate-200 hover:border-accent/60 disabled:opacity-40">
                 {busy === date ? 'Preparing…' : 'Download this day (Excel)'}
@@ -97,8 +106,9 @@ export default function ResultsPage() {
                   <th className="font-medium px-4 py-2">Candidate</th>
                   <th className="font-medium px-2 py-2">Interview</th>
                   <th className="font-medium px-2 py-2">Panel</th>
-                  <th className="font-medium px-2 py-2 text-right">Score</th>
-                  <th className="font-medium px-2 py-2">HR feedback</th>
+                  <th className="font-medium px-2 py-2 text-right">Average</th>
+                  {data.supportQuestion && <th className="font-medium px-2 py-2 text-right">{data.supportQuestion}</th>}
+                  <th className="font-medium px-2 py-2">HR comments</th>
                   <th className="px-4 py-2" />
                 </tr>
               </thead>
@@ -108,12 +118,24 @@ export default function ResultsPage() {
                     <td className="px-4 py-2 text-white">{r.name}</td>
                     <td className="px-2 py-2 text-slate-300 whitespace-nowrap">{dayLabel(r.date)} · {r.start}</td>
                     <td className="px-2 py-2 text-slate-400">{r.judges.filter((j) => !j.excused).map((j) => j.name).join(', ')}</td>
-                    <td className="px-2 py-2 text-right tabular-nums text-white">{r.average ?? '—'}<span className="text-slate-500"> / {data.maxTotal}</span></td>
+                    <td className="px-2 py-2 text-right tabular-nums" style={{ color: r.average === null ? undefined : scoreTone(r.average, data.scoreMax).text }}>
+                      {fmtScore(r.average, data.scale)}<span className="text-slate-500"> / {data.scoreMax}</span>
+                    </td>
+                    {data.supportQuestion && (
+                      <td className="px-2 py-2 text-right tabular-nums text-slate-300 whitespace-nowrap">
+                        {r.support.yes} of {r.judges.filter((j) => j.submitted).length}
+                      </td>
+                    )}
                     <td className="px-2 py-2 text-slate-300 max-w-md">
                       {finalDecision(r) ? <span className="line-clamp-2">{r.decision?.feedback}</span> : <span className="text-slate-500">{r.state === 'READY' ? 'Ready for decision' : `Awaiting scores (${r.submitted}/${r.expected})`}</span>}
                     </td>
                     <td className="px-4 py-2 text-right">
-                      {finalDecision(r) && <a href={`/report/${eventId}/${r.sessionId}`} target="_blank" rel="noreferrer" className="text-xs text-violet-300 hover:text-white whitespace-nowrap">Report ↗</a>}
+                      {finalDecision(r) && (
+                        <button type="button" disabled={!!busy} onClick={() => run(r.sessionId, () => downloadReport(eventId, token, r.sessionId))}
+                          className="text-xs text-violet-300 hover:text-white whitespace-nowrap disabled:opacity-40">
+                          {busy === r.sessionId ? 'Preparing…' : 'PDF ↓'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

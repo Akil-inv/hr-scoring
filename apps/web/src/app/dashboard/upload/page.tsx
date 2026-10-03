@@ -30,6 +30,7 @@ type Preview = {
     blocks: { block: string; start: string; end: string; interviews: number }[];
     schedule: { date: string; blocks: DayBlock[] }[];
     rubric: string;
+    supportQuestion: string | null;
   };
 };
 
@@ -185,6 +186,7 @@ export default function UploadSetupPage() {
                 s.minPanel ? `panels of at least ${s.minPanel}` : null,
                 s.timezone,
                 s.rubric,
+                s.supportQuestion ? `judges answer "${s.supportQuestion}" Yes / No` : null,
               ].filter(Boolean).join(' · ')}
             </p>
           </div>

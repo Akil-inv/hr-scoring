@@ -151,6 +151,17 @@ const FINISH = {
   },
 } as const;
 
+/**
+ * A scorecard's score as the judge thinks of it: points for a points rubric,
+ * the average rating (e.g. 4.2 of 5) for a rating rubric.
+ */
+function scoreOf(c: any): number | null {
+  if (!c || c.totalScore === null || c.totalScore === undefined) return null;
+  const n = c.criterionScores?.length ?? 0;
+  if (c.scale === 'RATING' && n > 0) return Math.round((c.totalScore / n) * 10) / 10;
+  return c.totalScore;
+}
+
 export default function QuadrantView({
   sessions,
   scorecards,
@@ -258,10 +269,11 @@ export default function QuadrantView({
     // and it belongs in DONE with the rest of their finished work.
     const revisit = rows.filter((r) => flagged(r) && !submitted(r));
 
-    const scores = done.map(({ c }) => c?.totalScore ?? 0).filter(n => n > 0);
+    const scores = done.map(({ c }) => scoreOf(c) ?? 0).filter(n => n > 0);
+    const rating = done.some(({ c }) => (c as any)?.scale === 'RATING');
     return {
       live, needs, next, done, revisit,
-      avg: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
+      avg: scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * (rating ? 10 : 1)) / (rating ? 10 : 1) : null,
       lo: scores.length ? Math.min(...scores) : null,
       hi: scores.length ? Math.max(...scores) : null,
       last: done.length ? done[done.length - 1] : null,
@@ -510,7 +522,7 @@ export default function QuadrantView({
                     </p>
                     {g.last && (
                       <p style={{ color: FINISH.done.dim }} className="text-sm truncate mt-0.5">
-                        Last: {g.last.s.team.name}, {g.last.c?.totalScore}
+                        Last: {g.last.s.team.name}, {scoreOf(g.last.c)}
                       </p>
                     )}
                   </div>
@@ -613,7 +625,7 @@ export default function QuadrantView({
                       </div>
                       <p className="text-sm text-slate-500 mt-0.5">{dayOf(s.startTime)} · {timeOf(s.startTime)}</p>
                     </div>
-                    <span className="shrink-0 font-mono text-xl text-slate-900">{c?.totalScore}</span>
+                    <span className="shrink-0 font-mono text-xl text-slate-900">{scoreOf(c)}</span>
                     <button type="button" onClick={() => onScore(s.sessionId)}
                       className="shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700">
                       View

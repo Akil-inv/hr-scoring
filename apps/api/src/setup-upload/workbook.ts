@@ -6,6 +6,7 @@ import {
 } from './cells';
 
 export type { Issue } from './cells';
+import { LAP_RUBRIC, RatingDimension } from '../scoring-templates/lap-rubric';
 
 /**
  * Reads and checks the interview setup workbook, and works out the schedule
@@ -29,6 +30,8 @@ export type EventInfo = {
   timezone: string;
   minPanel: number;
   adminEmails: string[];
+  /** Asked of every judge as Yes / No, e.g. "Support for LAP". Null for none. */
+  supportQuestion: string | null;
 };
 
 export type ItemKind = 'INTERVIEW' | 'BREAK' | 'CALIBRATION';
@@ -77,12 +80,18 @@ export type CriterionRow = {
   requiresComment: boolean;
 };
 
+/** One dimension of a 1-5 rating rubric (the Rubric sheet). */
+export type RatingRow = RatingDimension & { row: number };
+
 export type ParsedWorkbook = {
   event: EventInfo | null;
   template: TemplateItem[];
   judges: JudgeRow[];
   schedule: PlannedBlock[];
+  /** Points rubric from the Criteria sheet (hackathon style). */
   criteria: CriterionRow[];
+  /** Rating rubric from the Rubric sheet. Neither sheet filled means the LAP rubric. */
+  rating: RatingRow[];
 };
 
 export type DaySummary = {
@@ -105,6 +114,7 @@ export type CheckResult = {
     blocks: { block: string; start: string; end: string; interviews: number }[];
     schedule: DaySummary[];
     rubric: string;
+    supportQuestion: string | null;
   };
   workbook: ParsedWorkbook;
 };
@@ -112,7 +122,7 @@ export type CheckResult = {
 /** The rubric total every category must add up to (matches the scoring template). */
 export const RUBRIC_TOTAL = 100;
 
-const SHEET_ORDER = ['File', 'Event', 'Day template', 'Judges', 'Availability', 'Criteria'];
+const SHEET_ORDER = ['File', 'Event', 'Day template', 'Judges', 'Availability', 'Rubric', 'Criteria'];
 
 // ─── Availability cells ────────────────────────────────────────────────────
 
@@ -167,7 +177,7 @@ export function checkWorkbook(buffer: Buffer): CheckResult {
   const warnings: Issue[] = [];
   const err = (sheet: string, row: number | null, message: string) => errors.push({ sheet, row, message });
   const warn = (sheet: string, row: number | null, message: string) => warnings.push({ sheet, row, message });
-  const empty: ParsedWorkbook = { event: null, template: [], judges: [], schedule: [], criteria: [] };
+  const empty: ParsedWorkbook = { event: null, template: [], judges: [], schedule: [], criteria: [], rating: [] };
 
   const wb = readWorkbook(buffer);
   if (!wb) {
@@ -196,6 +206,14 @@ export function checkWorkbook(buffer: Buffer): CheckResult {
   const template = readTemplate(sheet('Day template', true), err);
   const judges = readJudges(sheet('Judges', true), err);
   const criteria = readCriteria(sheet('Criteria', false), err);
+  const rating = readRating(sheet('Rubric', false), err);
+  if (criteria.length > 0 && rating.length > 0) {
+    err('Rubric', null, 'Both the Rubric and the Criteria sheets are filled in. Use one: Rubric for 1-5 ratings, Criteria for points.');
+  }
+  // With no rubric at all the event uses the LAP rubric, and its question.
+  if (event && criteria.length === 0 && rating.length === 0 && event.supportQuestion === null) {
+    event.supportQuestion = LAP_RUBRIC.supportQuestion;
+  }
 
   const schedule: PlannedBlock[] = [];
   const availSheet = findSheet(wb, 'Availability');
@@ -252,7 +270,7 @@ export function checkWorkbook(buffer: Buffer): CheckResult {
     }
   }
 
-  return finish({ event, template, judges, schedule, criteria }, errors, warnings);
+  return finish({ event, template, judges, schedule, criteria, rating }, errors, warnings);
 }
 
 function readEvent(rows: RawRow[], wb: XLSX.WorkBook, err: (s: string, r: number | null, m: string) => void): EventInfo | null {
@@ -282,6 +300,7 @@ function readEvent(rows: RawRow[], wb: XLSX.WorkBook, err: (s: string, r: number
     timezone: tz,
     minPanel: minPanel ?? 2,
     adminEmails: [...new Set(admins)],
+    supportQuestion: text(pick(c, 'support_question', 'judge_question')),
   };
 }
 
@@ -502,6 +521,34 @@ function readCriteria(rows: RawRow[], err: (s: string, r: number | null, m: stri
   return out;
 }
 
+/**
+ * A 1-5 rating rubric: one row per dimension, with what a 1, 3 and 5 look
+ * like. Judges see those descriptions while scoring, so all three are needed.
+ */
+function readRating(rows: RawRow[], err: (s: string, r: number | null, m: string) => void): RatingRow[] {
+  const out: RatingRow[] = [];
+  const seen = new Map<string, number>();
+  for (const r of rows) {
+    const c = r.cells;
+    const name = text(pick(c, 'dimension', 'name'));
+    if (!name) { err('Rubric', r.row, 'Dimension is empty.'); continue; }
+    const key = name.toLowerCase();
+    if (seen.has(key)) { err('Rubric', r.row, `"${name}" is listed twice (also row ${seen.get(key)}).`); continue; }
+    seen.set(key, r.row);
+    const low = text(pick(c, 'score_1', 'low', '1'));
+    const moderate = text(pick(c, 'score_3', 'moderate', '3'));
+    const high = text(pick(c, 'score_5', 'high', '5'));
+    const missing = [!low && 'Score 1', !moderate && 'Score 3', !high && 'Score 5'].filter(Boolean);
+    if (missing.length) { err('Rubric', r.row, `"${name}" needs a description for ${missing.join(', ')}. Judges see these while scoring.`); continue; }
+    out.push({ row: r.row, name, descriptor: text(pick(c, 'descriptor', 'description')) ?? '', low: low!, moderate: moderate!, high: high! });
+  }
+  if (out.length > 0 && out.length < 3) {
+    err('Rubric', null, `The rubric has ${out.length} dimension${out.length === 1 ? '' : 's'}. It needs at least 3.`);
+  }
+  if (out.length > 10) err('Rubric', null, `The rubric has ${out.length} dimensions. Keep it to 10 or fewer.`);
+  return out;
+}
+
 function finish(wb: ParsedWorkbook, errorsIn: Issue[], warningsIn: Issue[]): CheckResult {
   const errors = inFileOrder(errorsIn, SHEET_ORDER);
   const warnings = inFileOrder(warningsIn, SHEET_ORDER);
@@ -544,7 +591,12 @@ function finish(wb: ParsedWorkbook, errorsIn: Issue[], warningsIn: Issue[]): Che
         interviews: items.filter((i) => i.kind === 'INTERVIEW').length,
       })),
       schedule: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
-      rubric: wb.criteria.length === 0 ? 'UOB rubric (Criteria sheet empty)' : `${categories} categories, ${wb.criteria.length - categories} rows`,
+      rubric: wb.rating.length > 0
+        ? `${wb.rating.length} dimensions rated 1-5`
+        : wb.criteria.length > 0
+          ? `${categories} categories, ${wb.criteria.length - categories} rows`
+          : `LAP rubric, ${LAP_RUBRIC.dimensions.length} dimensions rated 1-5 (Rubric sheet empty)`,
+      supportQuestion: wb.event?.supportQuestion ?? null,
     },
     workbook: wb,
   };

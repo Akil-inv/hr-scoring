@@ -1,4 +1,6 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { zipSync } from 'fflate';
+import { buildReportPdf, reportFileName } from './report-pdf';
 import { AuditAction } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -23,7 +25,12 @@ export const DECISION_LABEL: Record<Decision, string> = {
 
 const SUBMITTED = ['SUBMITTED', 'RESUBMITTED', 'LOCKED'];
 
-export type Criterion = { id: string; name: string; parentId: string | null; maxScore: number; order: number };
+export type Criterion = {
+  id: string; name: string; parentId: string | null; minScore: number; maxScore: number; order: number;
+  description: string | null;
+  /** Rating rubrics: what a 1, 3 and 5 look like. */
+  anchors: { score: number; label: string; text: string }[];
+};
 
 export type JudgeCard = {
   judgeId: string;
@@ -37,6 +44,8 @@ export type JudgeCard = {
   strengths: string | null;
   areasForImprovement: string | null;
   recommendation: string | null;
+  /** Yes / No to the rubric's support question; null when not answered or not asked. */
+  support: boolean | null;
   scores: Record<string, { score: number | null; comment: string | null }>;
 };
 
@@ -52,8 +61,12 @@ export type CandidateRecord = {
   state: ReviewState;
   expected: number;
   submitted: number;
+  /** Out of ReviewData.scoreMax: the mean total (points) or the mean rating (rating). */
   average: number | null;
+  /** Per category (points) or per dimension (rating), averaged over the judges who submitted. */
   categoryAverages: { id: string; name: string; maxScore: number; average: number | null }[];
+  /** Answers to the support question from the judges who submitted. */
+  support: { yes: number; no: number };
   judges: JudgeCard[];
   decision: {
     status: 'DRAFT' | 'SUBMITTED';
@@ -62,11 +75,18 @@ export type CandidateRecord = {
     decidedBy: string | null;
     decidedAt: Date | null;
   } | null;
+  /** The stored PDF report for the current decision, once HR has submitted. */
+  report: { revision: number; createdAt: Date } | null;
 };
 
 export type ReviewData = {
   event: { id: string; name: string; timezone: string };
   criteria: Criterion[];
+  /** POINTS: categories of points; RATING: every dimension rated on one scale (e.g. 1-5). */
+  scale: 'POINTS' | 'RATING';
+  /** What a candidate's average is out of: the rubric total, or the top rating. */
+  scoreMax: number;
+  supportQuestion: string | null;
   maxTotal: number;
   days: { date: string; candidates: number; decided: number; ready: number }[];
   records: CandidateRecord[];
@@ -82,6 +102,8 @@ function round1(n: number): number {
 
 @Injectable()
 export class ReviewService {
+  private readonly logger = new Logger(ReviewService.name);
+
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
@@ -98,13 +120,19 @@ export class ReviewService {
       include: { criteria: { orderBy: { displayOrder: 'asc' } } },
     });
     const criteria: Criterion[] = (template?.criteria ?? []).map((c) => ({
-      id: c.id, name: c.name, parentId: c.parentId, maxScore: c.maxScore, order: c.displayOrder,
+      id: c.id, name: c.name, parentId: c.parentId, minScore: c.minScore, maxScore: c.maxScore, order: c.displayOrder,
+      description: c.description ?? null,
+      anchors: Array.isArray(c.scoringAnchors)
+        ? (c.scoringAnchors as any[]).filter((a) => typeof a?.score === 'number' && a?.text)
+        : [],
     }));
+    const rating = template?.scale === 'RATING';
+    const supportQuestion = template?.supportQuestion ?? null;
     const parents = new Set(criteria.map((c) => c.parentId).filter(Boolean));
     const leaves = criteria.filter((c) => !parents.has(c.id));
     const categories = criteria.filter((c) => !c.parentId && parents.has(c.id));
 
-    const [sessions, decisions, users] = await Promise.all([
+    const [sessions, decisions, users, reports] = await Promise.all([
       this.prisma.judgingSession.findMany({
         where: { eventId },
         orderBy: { scheduledStart: 'asc' },
@@ -116,7 +144,13 @@ export class ReviewService {
       }),
       this.prisma.teamDecision.findMany({ where: { eventId } }),
       this.prisma.user.findMany({ select: { id: true, name: true, email: true } }),
+      this.prisma.decisionReport.findMany({
+        where: { eventId },
+        select: { decisionId: true, revision: true, createdAt: true },
+      }),
     ]);
+    const reportOf = (decisionId: string, revision: number) =>
+      reports.find((r) => r.decisionId === decisionId && r.revision === revision) ?? null;
     const decisionByTeam = new Map(decisions.map((d) => [d.teamId, d]));
     const userName = new Map(users.map((u) => [u.id, u.name || u.email]));
 
@@ -141,6 +175,7 @@ export class ReviewService {
             strengths: card?.overallStrengths ?? null,
             areasForImprovement: card?.areasForImprovement ?? null,
             recommendation: card?.recommendation ?? null,
+            support: card?.support ?? null,
             scores,
           };
         })
@@ -151,12 +186,28 @@ export class ReviewService {
       const expected = judges.filter((j) => !j.excused);
       const scored = judges.filter((j) => j.submitted);
       const totalOf = (j: JudgeCard) => leaves.reduce((sum, l) => sum + (j.scores[l.id]?.score ?? 0), 0);
-      const average = scored.length ? round1(scored.reduce((s2, j) => s2 + (j.total ?? totalOf(j)), 0) / scored.length) : null;
-      const categoryAverages = categories.map((cat) => {
-        const rows = criteria.filter((c) => c.parentId === cat.id);
-        const per = scored.map((j) => rows.reduce((sum, r) => sum + (j.scores[r.id]?.score ?? 0), 0));
-        return { id: cat.id, name: cat.name, maxScore: cat.maxScore, average: per.length ? round1(per.reduce((a, b) => a + b, 0) / per.length) : null };
-      });
+      const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+      let average: number | null;
+      let categoryAverages: CandidateRecord['categoryAverages'];
+      if (rating) {
+        // Each dimension averaged over the judges; the candidate's score is
+        // the mean rating across all of them, out of the top of the scale.
+        categoryAverages = leaves.map((l) => {
+          const v = mean(scored.map((j) => j.scores[l.id]?.score).filter((x): x is number => typeof x === 'number'));
+          return { id: l.id, name: l.name, maxScore: l.maxScore, average: v === null ? null : round1(v) };
+        });
+        const perJudge = scored.map((j) => mean(leaves.map((l) => j.scores[l.id]?.score ?? 0)) ?? 0);
+        const v = mean(perJudge);
+        average = v === null ? null : round1(v);
+      } else {
+        const v = mean(scored.map((j) => j.total ?? totalOf(j)));
+        average = v === null ? null : round1(v);
+        categoryAverages = categories.map((cat) => {
+          const rows = criteria.filter((c) => c.parentId === cat.id);
+          const per = mean(scored.map((j) => rows.reduce((sum, r) => sum + (j.scores[r.id]?.score ?? 0), 0)));
+          return { id: cat.id, name: cat.name, maxScore: cat.maxScore, average: per === null ? null : round1(per) };
+        });
+      }
 
       const d = decisionByTeam.get(s.team.id);
       const decided = d?.status === 'SUBMITTED';
@@ -173,6 +224,10 @@ export class ReviewService {
         submitted: expected.filter((j) => j.submitted).length,
         average,
         categoryAverages,
+        support: {
+          yes: scored.filter((j) => j.support === true).length,
+          no: scored.filter((j) => j.support === false).length,
+        },
         judges,
         decision: d
           ? {
@@ -183,6 +238,7 @@ export class ReviewService {
               decidedAt: d.decidedAt,
             }
           : null,
+        report: d && decided ? reportOf(d.id, d.revision) : null,
       });
     }
 
@@ -195,10 +251,14 @@ export class ReviewService {
       byDay.set(r.date, x);
     }
 
+    const maxTotal = categories.length ? categories.reduce((s2, c) => s2 + c.maxScore, 0) : leaves.reduce((s2, c) => s2 + c.maxScore, 0);
     return {
       event: { id: event.id, name: event.name, timezone: tz },
       criteria,
-      maxTotal: categories.length ? categories.reduce((s2, c) => s2 + c.maxScore, 0) : leaves.reduce((s2, c) => s2 + c.maxScore, 0),
+      scale: rating ? 'RATING' : 'POINTS',
+      scoreMax: rating ? Math.max(...leaves.map((l) => l.maxScore), 0) : maxTotal,
+      supportQuestion,
+      maxTotal,
       days: [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([d, x]) => ({ date: d, ...x })),
       records: date ? records.filter((r) => r.date === date) : records,
     };
@@ -259,7 +319,67 @@ export class ReviewService {
       oldValues: record.decision ?? undefined,
       newValues: { decision, feedback, status: saved.status, average: record.average },
     });
-    return { status: saved.status, decision, feedback };
+
+    // The report is made now and kept, so the file on record is what was
+    // decided. If making it fails the decision still stands; the report is
+    // made on first download instead.
+    let report = false;
+    if (input.submit) {
+      try {
+        await this.storeReport(eventId, sessionId);
+        report = true;
+      } catch (e: any) {
+        this.logger.error(`Report for ${record.name} (${sessionId}) not made: ${e?.message}`);
+      }
+    }
+    return { status: saved.status, decision, feedback, report };
+  }
+
+  /** Make the report PDF for a decided record and keep it with the decision. */
+  async storeReport(eventId: string, sessionId: string) {
+    const data = await this.load(eventId);
+    const record = data.records.find((r) => r.sessionId === sessionId);
+    if (!record) throw new NotFoundException('That candidate is not in this event.');
+    if (record.decision?.status !== 'SUBMITTED') {
+      throw new BadRequestException(`${record.name}'s report is available once HR submits the final decision.`);
+    }
+    const decision = await this.prisma.teamDecision.findUnique({ where: { teamId: record.teamId } });
+    if (!decision) throw new NotFoundException('Decision not found.');
+    const existing = await this.prisma.decisionReport.findUnique({
+      where: { decisionId_revision: { decisionId: decision.id, revision: decision.revision } },
+    });
+    if (existing) return existing;
+    const pdf = await buildReportPdf(data, record, decision.decidedAt ?? new Date());
+    return this.prisma.decisionReport.upsert({
+      where: { decisionId_revision: { decisionId: decision.id, revision: decision.revision } },
+      create: {
+        eventId, decisionId: decision.id, teamId: record.teamId, revision: decision.revision,
+        fileName: reportFileName(record), pdf,
+      },
+      update: {},
+    });
+  }
+
+  /** The stored report for one candidate (made now if it is missing). */
+  async report(eventId: string, sessionId: string): Promise<{ fileName: string; pdf: Buffer }> {
+    const r = await this.storeReport(eventId, sessionId);
+    return { fileName: r.fileName, pdf: Buffer.from(r.pdf) };
+  }
+
+  /** Every decided candidate's report for one day, in interview order, as a zip. */
+  async dayReports(eventId: string, date: string): Promise<{ fileName: string; zip: Buffer; count: number }> {
+    const data = await this.load(eventId, date);
+    const decided = data.records
+      .filter((r) => r.decision?.status === 'SUBMITTED')
+      .sort((a, b) => a.start.localeCompare(b.start));
+    if (decided.length === 0) throw new BadRequestException('No candidates on this day have a final HR decision yet.');
+    const files: Record<string, Uint8Array> = {};
+    for (const r of decided) {
+      const rep = await this.storeReport(eventId, r.sessionId);
+      files[`${r.start.replace(':', '')}-${rep.fileName}`] = new Uint8Array(rep.pdf);
+    }
+    const base = data.event.name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'reports';
+    return { fileName: `${base}-${date}-reports.zip`, zip: Buffer.from(zipSync(files, { level: 0 })), count: decided.length };
   }
 
   /** REST calls skip the GraphQL scope guard; check event access here. */

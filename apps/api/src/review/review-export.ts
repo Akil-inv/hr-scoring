@@ -4,7 +4,8 @@ import { CandidateRecord, DECISION_LABEL, Decision, ReviewData } from './review.
 /**
  * The results workbooks.
  *
- * Day workbook (one date):        Summary · Judge scores · Judge comments
+ * Day workbook (one date):        Summary · Judge scores · Judge comments (points)
+ *                                  or Judge summary (rating rubrics)
  * Consolidated (all dates so far): All days · one summary sheet per day ·
  *                                  Judge scores · Judge comments
  *
@@ -63,10 +64,14 @@ function sheet(rows: (string | number | null)[][], widths: number[]): XLSX.WorkS
 
 function summarySheet(data: ReviewData, records: CandidateRecord[], withDate: boolean): XLSX.WorkSheet {
   const cats = records[0]?.categoryAverages ?? data.criteria.filter((c) => !c.parentId).map((c) => ({ name: c.name, maxScore: c.maxScore }));
+  const rating = data.scale === 'RATING';
+  const sq = data.supportQuestion;
   const head = [
     'Decision', 'Candidate', ...(withDate ? ['Date'] : []), 'Time', 'Panel', 'Judges scored',
-    `Average score (out of ${data.maxTotal})`, ...cats.map((c) => `${c.name} (out of ${c.maxScore})`),
-    'HR feedback', 'Record status', 'Decided by', 'Decided at',
+    rating ? `Average rating (out of ${data.scoreMax})` : `Average score (out of ${data.maxTotal})`,
+    ...(sq ? [`${sq} (Yes)`] : []),
+    ...cats.map((c) => `${c.name} (out of ${c.maxScore})`),
+    'HR comments', 'Record status', 'Decided by', 'Decided at',
   ];
   const rows: (string | number | null)[][] = [head];
   for (const r of resultsOrder(records)) {
@@ -79,6 +84,7 @@ function summarySheet(data: ReviewData, records: CandidateRecord[], withDate: bo
       r.judges.filter((j) => !j.excused).map((j) => j.name).join(', '),
       `${r.submitted} of ${r.expected}`,
       r.average,
+      ...(sq ? [`${r.support.yes} of ${r.judges.filter((j) => j.submitted).length}`] : []),
       ...r.categoryAverages.map((c) => c.average),
       r.decision?.feedback ?? '',
       r.decision?.status === 'DRAFT' && r.state !== 'DECIDED' ? `${STATE_LABEL[r.state]} (draft decision)` : STATE_LABEL[r.state],
@@ -86,13 +92,27 @@ function summarySheet(data: ReviewData, records: CandidateRecord[], withDate: bo
       r.decision?.status === 'SUBMITTED' ? when(r.decision.decidedAt, data.event.timezone) : '',
     ]);
   }
-  return sheet(rows, [14, 26, ...(withDate ? [12] : []), 13, 34, 13, 16, ...cats.map(() => 18), 60, 22, 20, 17]);
+  return sheet(rows, [14, 26, ...(withDate ? [12] : []), 13, 34, 13, 16, ...(sq ? [14] : []), ...cats.map(() => 18), 60, 22, 20, 17]);
 }
 
 function judgeScoresSheet(data: ReviewData, records: CandidateRecord[]): XLSX.WorkSheet {
   const parents = new Set(data.criteria.map((c) => c.parentId).filter(Boolean));
   const leaves = data.criteria.filter((c) => !parents.has(c.id)).sort((a, b) => a.order - b.order);
   const nameOf = new Map(data.criteria.map((c) => [c.id, c.name]));
+  if (data.scale === 'RATING') {
+    const rows: (string | number | null)[][] = [[
+      'Date', 'Time', 'Candidate', 'Judge', 'Dimension', 'Rating', 'Out of', 'Comment', 'Scorecard status',
+    ]];
+    for (const r of records) {
+      for (const j of r.judges) {
+        for (const l of leaves) {
+          const s = j.scores[l.id];
+          rows.push([r.date, r.start, r.name, j.name, l.name, s?.score ?? null, l.maxScore, s?.comment ?? '', SCORECARD_LABEL[j.status] ?? j.status]);
+        }
+      }
+    }
+    return sheet(rows, [12, 8, 26, 20, 32, 8, 8, 80, 16]);
+  }
   const rows: (string | number | null)[][] = [[
     'Date', 'Time', 'Candidate', 'Judge', 'Category', 'Criterion', 'Score', 'Out of', 'Criterion comment', 'Scorecard status',
   ]];
@@ -111,6 +131,30 @@ function judgeScoresSheet(data: ReviewData, records: CandidateRecord[]): XLSX.Wo
 }
 
 function judgeCommentsSheet(data: ReviewData, records: CandidateRecord[]): XLSX.WorkSheet {
+  if (data.scale === 'RATING') {
+    // Comments are per dimension (on Judge scores); this is each judge's
+    // overall line for the candidate.
+    const parents = new Set(data.criteria.map((c) => c.parentId).filter(Boolean));
+    const leaves = data.criteria.filter((c) => !parents.has(c.id));
+    const sq = data.supportQuestion;
+    const rows: (string | number | null)[][] = [[
+      'Date', 'Time', 'Candidate', 'Judge', `Average rating (out of ${data.scoreMax})`, ...(sq ? [sq] : []),
+      ...leaves.map((l) => l.name), 'Scorecard status', 'Submitted at',
+    ]];
+    for (const r of records) {
+      for (const j of r.judges) {
+        const vals = leaves.map((l) => j.scores[l.id]?.score ?? null);
+        const got = vals.filter((v): v is number => v !== null);
+        rows.push([
+          r.date, r.start, r.name, j.name + (j.excused ? ' (stepped out)' : ''),
+          j.submitted && got.length ? Math.round((got.reduce((a, b) => a + b, 0) / got.length) * 10) / 10 : null,
+          ...(sq ? [j.support === true ? 'Yes' : j.support === false ? 'No' : ''] : []),
+          ...vals, SCORECARD_LABEL[j.status] ?? j.status, when(j.submittedAt, data.event.timezone),
+        ]);
+      }
+    }
+    return sheet(rows, [12, 8, 26, 22, 14, ...(sq ? [14] : []), ...leaves.map(() => 16), 16, 17]);
+  }
   const rows: (string | number | null)[][] = [[
     'Date', 'Time', 'Candidate', 'Judge', `Total (out of ${data.maxTotal})`, 'Strengths', 'Areas for improvement',
     'Recommendation', 'Scorecard status', 'Submitted at',
@@ -135,14 +179,14 @@ export function buildResultsWorkbook(data: ReviewData, date?: string): Buffer {
     const day = records.filter((r) => r.date === date);
     XLSX.utils.book_append_sheet(wb, summarySheet(data, day, false), 'Summary');
     XLSX.utils.book_append_sheet(wb, judgeScoresSheet(data, day), 'Judge scores');
-    XLSX.utils.book_append_sheet(wb, judgeCommentsSheet(data, day), 'Judge comments');
+    XLSX.utils.book_append_sheet(wb, judgeCommentsSheet(data, day), data.scale === 'RATING' ? 'Judge summary' : 'Judge comments');
   } else {
     XLSX.utils.book_append_sheet(wb, summarySheet(data, records, true), 'All days');
     for (const d of data.days) {
       XLSX.utils.book_append_sheet(wb, summarySheet(data, records.filter((r) => r.date === d.date), false), dayLabel(d.date).replace(/,/g, ''));
     }
     XLSX.utils.book_append_sheet(wb, judgeScoresSheet(data, records), 'Judge scores');
-    XLSX.utils.book_append_sheet(wb, judgeCommentsSheet(data, records), 'Judge comments');
+    XLSX.utils.book_append_sheet(wb, judgeCommentsSheet(data, records), data.scale === 'RATING' ? 'Judge summary' : 'Judge comments');
   }
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }

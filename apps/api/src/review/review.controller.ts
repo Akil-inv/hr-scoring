@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { ReviewService } from './review.service';
 import { buildResultsWorkbook, resultsFileName, resultsOrder } from './review-export';
@@ -13,6 +13,8 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
  *   POST /api/review/:eventId/:sessionId/decision        { decision, feedback, submit }
  *   GET  /api/review/:eventId/results?date=YYYY-MM-DD    candidates in results order
  *   GET  /api/review/:eventId/export?date=YYYY-MM-DD     .xlsx for that day, or all days without a date
+ *   GET  /api/review/:eventId/:sessionId/report          the candidate's stored PDF report (decided only)
+ *   GET  /api/review/:eventId/reports?date=YYYY-MM-DD    that day's reports as a .zip
  */
 @Controller('api/review')
 export class ReviewController {
@@ -45,6 +47,26 @@ export class ReviewController {
     await this.service.assertAccess(req.user, eventId, ADMINS);
     const data = await this.service.load(eventId, this.date(date));
     return { ...data, records: resultsOrder(data.records) };
+  }
+
+  @Get(':eventId/reports')
+  async reports(@Param('eventId') eventId: string, @Query('date') date: string | undefined, @Req() req: any, @Res() res: Response) {
+    await this.service.assertAccess(req.user, eventId, ADMINS);
+    const day = this.date(date);
+    if (!day) throw new BadRequestException('Choose a day (date=YYYY-MM-DD).');
+    const out = await this.service.dayReports(eventId, day);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${out.fileName}"`);
+    res.send(out.zip);
+  }
+
+  @Get(':eventId/:sessionId/report')
+  async report(@Param('eventId') eventId: string, @Param('sessionId') sessionId: string, @Req() req: any, @Res() res: Response) {
+    await this.service.assertAccess(req.user, eventId, ADMINS);
+    const out = await this.service.report(eventId, sessionId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${out.fileName}"`);
+    res.send(out.pdf);
   }
 
   @Get(':eventId/export')

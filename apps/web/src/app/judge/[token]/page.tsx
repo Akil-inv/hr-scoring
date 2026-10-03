@@ -5,6 +5,7 @@ import DriftMetronome from '@/components/drift-metronome';
 import QuadrantView from '@/components/quadrant-view';
 import { platformColor } from '@/components/platform-chip';
 import UseCasePanel from '@/components/use-case-panel';
+import RatingScorecard from '@/components/rating-scorecard';
 
 
 /**
@@ -50,6 +51,19 @@ function toneOf(message: string): Tone {
   return 'good';
 }
 
+/**
+ * The questions on a scorecard, in order. A criterion that other rows sit
+ * under is a category heading, not a question; a rating rubric has no
+ * categories, so every row is a question.
+ */
+function leafRows(sc: any): any[] {
+  const all = sc?.criterionScores || [];
+  const parents = new Set(all.map((cs: any) => cs.parentId).filter(Boolean));
+  return all
+    .filter((cs: any) => !parents.has(cs.criterionId))
+    .sort((a: any, b: any) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+}
+
 export default function JudgePortalPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -83,6 +97,9 @@ export default function JudgePortalPage() {
   const [strengths, setStrengths] = useState('');
   const [improvements, setImprovements] = useState('');
   const [recommendation, setRecommendation] = useState('');
+  // The rubric's Yes / No question (rating rubrics, e.g. "Support for LAP").
+  const [support, setSupport] = useState<boolean | null>(null);
+  const [savedSupport, setSavedSupport] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   // Whether there is unsaved work, and when it was last written. Both are shown
@@ -168,6 +185,8 @@ export default function JudgePortalPage() {
     setStrengths(sc.overallStrengths || '');
     setImprovements(sc.areasForImprovement || '');
     setRecommendation(sc.recommendation || '');
+    setSupport(sc.support ?? null);
+    setSavedSupport(sc.support ?? null);
     setMessage('');
   };
 
@@ -177,7 +196,7 @@ export default function JudgePortalPage() {
     if (!activeScorecard || !dirty || saving) return;
     const t = setTimeout(() => { saveOrSubmit(false, true); }, 20000);
     return () => clearTimeout(t);
-  }, [scores, strengths, improvements, recommendation, dirty, activeScorecard, saving]);
+  }, [scores, strengths, improvements, recommendation, support, dirty, activeScorecard, saving]);
 
   // And immediately when the page is hidden. On a phone this fires when the
   // screen locks or the judge switches app — precisely when the tab is most
@@ -225,7 +244,7 @@ export default function JudgePortalPage() {
       document.removeEventListener('visibilitychange', onShow);
       window.removeEventListener('pagehide', onHide);
     };
-  }, [activeScorecard, dirty, scores, strengths, improvements, recommendation, serverUpdatedAt]);
+  }, [activeScorecard, dirty, scores, strengths, improvements, recommendation, support, serverUpdatedAt]);
 
   /**
    * What still stands between this scorecard and a submission.
@@ -241,11 +260,9 @@ export default function JudgePortalPage() {
    * message rather than a silent failure.
    */
   const outstanding = useMemo(() => {
-    if (!activeScorecard) return { missingScores: [], missingComments: [] };
+    if (!activeScorecard) return { missingScores: [], missingComments: [], missingSupport: false };
 
-    const rows = (activeScorecard.criterionScores || [])
-      .filter((cs: any) => !!cs.parentId)
-      .sort((a: any, b: any) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+    const rows = leafRows(activeScorecard);
 
     const missingScores: string[] = [];
     const missingComments: string[] = [];
@@ -254,7 +271,7 @@ export default function JudgePortalPage() {
       const s = scores[cs.criterionId] || { score: null, comment: '' };
       const outOfRange =
         s.score !== null && s.score !== undefined &&
-        (s.score < 0 || s.score > cs.maxScore);
+        (s.score < (cs.minScore ?? 0) || s.score > cs.maxScore);
       if (s.score === null || s.score === undefined || outOfRange) {
         missingScores.push(cs.criterionName || cs.name || 'a criterion');
       } else if (cs.requiresComment && !(s.comment || '').trim()) {
@@ -262,17 +279,20 @@ export default function JudgePortalPage() {
       }
     }
 
-    return { missingScores, missingComments };
-  }, [activeScorecard, scores]);
+    const missingSupport = !!activeScorecard.supportQuestion && support === null;
+    return { missingScores, missingComments, missingSupport };
+  }, [activeScorecard, scores, support]);
 
   const canSubmit =
     outstanding.missingScores.length === 0 &&
-    outstanding.missingComments.length === 0;
+    outstanding.missingComments.length === 0 &&
+    !outstanding.missingSupport;
+  const isRating = activeScorecard?.scale === 'RATING';
 
   /** A sentence a judge can act on, naming everything at once. */
   const outstandingText = useMemo(() => {
-    const { missingScores, missingComments } = outstanding;
-    if (!missingScores.length && !missingComments.length) return '';
+    const { missingScores, missingComments, missingSupport } = outstanding;
+    if (!missingScores.length && !missingComments.length && !missingSupport) return '';
 
     const list = (names: string[]) =>
       names.length <= 3
@@ -282,7 +302,7 @@ export default function JudgePortalPage() {
     const parts: string[] = [];
     if (missingScores.length) {
       parts.push(
-        `${missingScores.length} ${missingScores.length > 1 ? 'criteria' : 'criterion'} ` +
+        `${missingScores.length} ${isRating ? (missingScores.length > 1 ? 'dimensions' : 'dimension') : missingScores.length > 1 ? 'criteria' : 'criterion'} ` +
         `not yet scored: ${list(missingScores)}`,
       );
     }
@@ -292,8 +312,9 @@ export default function JudgePortalPage() {
         `required: ${list(missingComments)}`,
       );
     }
+    if (missingSupport) parts.push(`"${activeScorecard.supportQuestion}" not answered`);
     return parts.join('. ');
-  }, [outstanding]);
+  }, [outstanding, isRating, activeScorecard]);
 
   // A last line of defence for a deliberate close with work outstanding.
   useEffect(() => {
@@ -319,7 +340,7 @@ export default function JudgePortalPage() {
         return !was || was.score !== s.score || (was.comment || '') !== (s.comment || '');
       });
 
-      if (auto && changed.length === 0 && !dirty) { setSaving(false); return; }
+      if (auto && changed.length === 0 && support === savedSupport && !dirty) { setSaving(false); return; }
 
       // Refuse locally with a specific reason. The server refuses too, and its
       // message names only the first failing criterion; this names all of them,
@@ -366,6 +387,7 @@ export default function JudgePortalPage() {
         overallStrengths: strengths || undefined,
         areasForImprovement: improvements || undefined,
         recommendation: recommendation || undefined,
+        ...(submit || support !== savedSupport ? { support } : {}),
         submit,
         expectedUpdatedAt: serverUpdatedAt || undefined,
       };
@@ -412,6 +434,7 @@ export default function JudgePortalPage() {
         setLastSaved(new Date());
         if (data.updatedAt) setServerUpdatedAt(data.updatedAt);
         setSavedScores({ ...scores });
+        setSavedSupport(support);
         if (data.ignoredCriterionIds?.length) {
           setMessage(
             `${data.ignoredCriterionIds.length} entry(ies) were not saved because ` +
@@ -443,6 +466,10 @@ export default function JudgePortalPage() {
   const sessions = schedule?.sessions || [];
   const scored = scorecards.filter((s: any) => ['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(s.status)).length;
   const totalScore = Object.values(scores).reduce((sum, s) => sum + (s.score || 0), 0);
+  // A rating rubric's running score is the average rating so far.
+  const rated = Object.values(scores).filter((s) => s.score !== null && s.score !== undefined);
+  const ratingAvg = rated.length ? Math.round((rated.reduce((a, s) => a + (s.score || 0), 0) / rated.length) * 10) / 10 : null;
+  const ratingMax = leafRows(activeScorecard)[0]?.maxScore ?? 5;
 
   // Group by date
   const byDate: Record<string, any[]> = {};
@@ -548,8 +575,8 @@ export default function JudgePortalPage() {
               </div>
               <div className="flex items-center gap-4">
                 <div className="text-right">
-                  <p className="text-3xl font-bold text-slate-900">{totalScore}</p>
-                  <p className="text-sm text-slate-500">of 100</p>
+                  <p className="text-3xl font-bold text-slate-900">{isRating ? (ratingAvg ?? '–') : totalScore}</p>
+                  <p className="text-sm text-slate-500">{isRating ? `average of ${ratingMax}` : 'of 100'}</p>
                 </div>
                 <button type="button"
                   onClick={async () => {
@@ -581,15 +608,26 @@ export default function JudgePortalPage() {
               </div>
             )}
 
+            {isRating ? (
+              <RatingScorecard
+                rows={leafRows(activeScorecard)}
+                scores={scores}
+                locked={['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status)}
+                engaged={engaged}
+                supportQuestion={activeScorecard.supportQuestion ?? null}
+                support={support}
+                onScore={(id, v) => { setDirty(true); setEngaged(true); setScores(prev => ({ ...prev, [id]: { ...prev[id], comment: prev[id]?.comment ?? '', score: v } })); }}
+                onComment={(id, text) => { setDirty(true); setScores(prev => ({ ...prev, [id]: { score: prev[id]?.score ?? null, comment: text } })); }}
+                onSupport={(v) => { setDirty(true); setEngaged(true); setSupport(v); }}
+              />
+            ) : (
             <div className="space-y-4">
               {(() => {
                 // Categories group the questions; they are not questions
                 // themselves. Filtering them here means a scorecard created
                 // before the rubric became two-level cannot show one as
                 // scoreable.
-                const rows = (activeScorecard.criterionScores || [])
-                  .filter((cs: any) => !!cs.parentId)
-                  .sort((a: any, b: any) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+                const rows = leafRows(activeScorecard);
 
                 // Running subtotal per category, so a judge can see how much
                 // of each section is used without adding it up themselves.
@@ -715,6 +753,7 @@ export default function JudgePortalPage() {
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-lg px-4 py-3 text-base text-slate-900 placeholder-slate-500 outline-none resize-none disabled:opacity-50 focus:bg-white focus:border-slate-400" />
               </div>
             </div>
+            )}
 
             {/* What is still outstanding, before the judge presses anything. */}
             {!['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) &&
@@ -732,9 +771,12 @@ export default function JudgePortalPage() {
             <div className="flex flex-col gap-4 mt-4 pt-4 border-t border-slate-200 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className="h-2 flex-1 sm:w-48 sm:flex-none bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-slate-900 rounded-full transition-all" style={{ width: `${totalScore}%` }} />
+                  <div className="h-full bg-slate-900 rounded-full transition-all"
+                    style={{ width: `${isRating ? ((ratingAvg ?? 0) / ratingMax) * 100 : totalScore}%` }} />
                 </div>
-                <span className="text-base font-bold text-slate-900">{totalScore}/100</span>
+                <span className="text-base font-bold text-slate-900">
+                  {isRating ? `${ratingAvg ?? '–'} / ${ratingMax} · ${rated.length} of ${leafRows(activeScorecard).length} rated` : `${totalScore}/100`}
+                </span>
               </div>
               {!['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) ? (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row">
@@ -763,7 +805,8 @@ export default function JudgePortalPage() {
                       : canSubmit
                         ? 'Submit scorecard'
                         : `Submit scorecard (${
-                            outstanding.missingScores.length + outstanding.missingComments.length
+                            outstanding.missingScores.length + outstanding.missingComments.length +
+                            (outstanding.missingSupport ? 1 : 0)
                           } left)`}
                   </button>
                 </div>
