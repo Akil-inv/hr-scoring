@@ -1,9 +1,10 @@
+import { BRAND } from '@/lib/brand';
 import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Hackathon Judging Platform',
-  description: 'Command centre for multi-panel hackathon judging.',
+  title: BRAND.title,
+  description: 'Interview scheduling, panel assessment and decisions.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/graphql-client';
 import { useAuthStore } from '@/lib/auth-store';
 import { LOGIN_MUTATION } from '@/lib/queries';
+import { BRAND } from '@/lib/brand';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -36,10 +37,10 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-sm animate-in">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-accent/20 border border-accent/30 mb-4">
-            <span className="text-accent text-xl">⚡</span>
+            <span className="text-accent text-xl">✦</span>
           </div>
-          <h1 className="text-2xl font-bold text-white">Hackathon Judging</h1>
-          <p className="text-sm text-slate-400 mt-1">Command Centre</p>
+          <h1 className="text-2xl font-bold text-white">{BRAND.name}</h1>
+          <p className="text-sm text-slate-400 mt-1">{BRAND.tagline}</p>
         </div>
 
         <div className="bg-dark-800/80 backdrop-blur-xl border border-dark-600 rounded-2xl p-8 shadow-2xl shadow-black/40">

@@ -6,7 +6,7 @@ download, and a realistic sample for testing the upload.
 
 Writes:
     apps/web/public/templates/event-setup-template.xlsx   (served by the app)
-    tools/setup-workbook/sample-event.xlsx                (10 days, 9 judges)
+    tools/setup-workbook/sample-event.xlsx                (10 weekdays, 9 judges)
     apps/web/public/templates/candidates-template.xlsx    (served by the app)
     tools/setup-workbook/sample-candidates-batch{1,2}.xlsx
 
@@ -187,50 +187,112 @@ def template_data() -> dict:
     }
 
 
-def sample_data() -> dict:
-    """Ten weekdays from 19 Oct 2026, nine judges, gaps, and partial windows."""
-    judges = [
-        ("Jack", "jack@example.com"), ("Eric", "eric@example.com"), ("Lay Wah", "laywah@example.com"),
-        ("Yung Chee", "yungchee@example.com"), ("Lawrance", "lawrance@example.com"),
-        ("Choon Hin", "choonhin@example.com"), ("Hendra", "hendra@example.com"),
-        ("Wei Wei", "weiwei@example.com"), ("Dean", "dean@example.com"),
-    ]
+JUDGES = [
+    ("Jack", "jack@example.com"), ("Eric", "eric@example.com"), ("Lay Wah", "laywah@example.com"),
+    ("Yung Chee", "yungchee@example.com"), ("Lawrance", "lawrance@example.com"),
+    ("Choon Hin", "choonhin@example.com"), ("Hendra", "hendra@example.com"),
+    ("Wei Wei", "weiwei@example.com"), ("Dean", "dean@example.com"),
+]
+
+
+def sample_days():
     days, d = [], date(2026, 10, 19)
     while len(days) < 10:
         if d.weekday() < 5:
             days.append(d)
         d += timedelta(days=1)
-    cols = [f"{day.isoformat()} {b}" for day in days for b in ("AM", "PM")]
+    return days
 
-    # Who sits when: a few judges per day, a blank day (day 4), and partial windows.
-    plan = {
-        0: {"jack": "Yes", "hendra": "Yes", "weiwei": "Yes"},
-        1: {"jack": "Yes", "dean": "Yes", "lawrance": "13:00-16:00"},
-        2: {"eric": "Yes", "laywah": "Yes", "yungchee": "Yes"},
-        3: {"eric": "Yes", "laywah": "Yes", "choonhin": "14:00-15:00"},
-        4: {"dean": "Yes", "lawrance": "Yes", "choonhin": "Yes"},
-        5: {"dean": "Yes", "lawrance": "Yes", "choonhin": "Yes"},
-        8: {"jack": "Yes", "eric": "Yes"},
-        9: {"jack": "Yes", "eric": "Yes", "hendra": "13:00-16:00"},
-        12: {"yungchee": "Yes", "weiwei": "Yes", "laywah": "Yes"},
-        13: {"yungchee": "Yes", "weiwei": "Yes", "laywah": "Yes"},
-        16: {"dean": "Yes", "jack": "Yes", "choonhin": "Yes"},
-        17: {"dean": "Yes", "jack": "Yes"},
-        18: {"hendra": "Yes", "weiwei": "Yes", "eric": "Yes"},
-        19: {"hendra": "Yes", "weiwei": "09:00-10:00", "eric": "Yes"},
-    }
+
+# Who can sit which block across the fortnight. Keys are judge email prefixes.
+# Thu 22 Oct has nobody (a gap in the schedule); Mon 26 Oct afternoon too.
+# Partial windows show judges who can only stay part of a block, and Tue 27
+# Oct afternoon drops below two judges after 15:40, so those interviews have
+# no panel.
+SAMPLE_PLAN = {
+    ("2026-10-19", "AM"): {"jack": "Yes", "hendra": "Yes", "weiwei": "Yes"},
+    ("2026-10-19", "PM"): {"jack": "Yes", "dean": "Yes", "lawrance": "13:00-16:00"},
+    ("2026-10-20", "AM"): {"eric": "Yes", "laywah": "Yes", "yungchee": "Yes"},
+    ("2026-10-20", "PM"): {"eric": "Yes", "laywah": "Yes", "choonhin": "14:00-15:00"},
+    ("2026-10-21", "AM"): {"dean": "Yes", "lawrance": "Yes", "choonhin": "Yes"},
+    ("2026-10-21", "PM"): {"dean": "Yes", "lawrance": "Yes", "choonhin": "Yes"},
+    ("2026-10-23", "AM"): {"jack": "Yes", "eric": "Yes"},
+    ("2026-10-23", "PM"): {"jack": "Yes", "eric": "Yes", "hendra": "13:00-16:00"},
+    ("2026-10-26", "AM"): {"yungchee": "Yes", "weiwei": "Yes", "hendra": "09:00-10:40"},
+    ("2026-10-27", "AM"): {"yungchee": "Yes", "weiwei": "Yes", "laywah": "Yes"},
+    ("2026-10-27", "PM"): {"dean": "Yes", "hendra": "14:00-15:40"},
+    ("2026-10-28", "AM"): {"lawrance": "Yes", "choonhin": "Yes", "dean": "Yes"},
+    ("2026-10-28", "PM"): {"lawrance": "Yes", "choonhin": "Yes", "jack": "15:00-17:20"},
+    ("2026-10-29", "AM"): {"dean": "Yes", "jack": "Yes", "choonhin": "Yes"},
+    ("2026-10-29", "PM"): {"dean": "Yes", "jack": "Yes"},
+    ("2026-10-30", "AM"): {"hendra": "Yes", "weiwei": "Yes", "eric": "Yes"},
+    ("2026-10-30", "PM"): {"hendra": "Yes", "weiwei": "Yes", "eric": "Yes"},
+}
+
+
+def sample_data() -> dict:
+    """Ten weekdays from 19 Oct 2026, nine judges, two gaps, partial windows."""
+    cols = [f"{day.isoformat()} {b}" for day in sample_days() for b in ("AM", "PM")]
     availability = []
-    for name, email in judges:
+    for name, email in JUDGES:
         key = email.split("@")[0]
-        availability.append((email, *[plan.get(i, {}).get(key, "No") for i in range(len(cols))]))
-
+        row = []
+        for col in cols:
+            d, b = col.split(" ")
+            row.append(SAMPLE_PLAN.get((d, b), {}).get(key, "No"))
+        availability.append((email, *row))
     return {
-        "Event": [("Sample Interview Fortnight", "UOB Plaza 1", "Asia/Singapore", 2, "")],
+        "Event": [("October Graduate Interviews", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "")],
         "Day template": TEMPLATE_DAY,
-        "Judges": [(n, e, f"+659000{i:04d}", "UOB", "Panel member", "L3") for i, (n, e) in enumerate(judges, 1)],
+        "Judges": [(n, e, f"+659000{i:04d}", "UOB", "Panel member", "L3") for i, (n, e) in enumerate(JUDGES, 1)],
         "availability_columns": cols,
         "availability": availability,
     }
+
+
+def interview_slots_with_panel(min_panel=2):
+    """The interviews the sample schedule gives a panel, as (date, start time), in order."""
+    blocks = {}
+    for blk, start, kind, minutes in TEMPLATE_DAY:
+        items = blocks.setdefault(blk, [])
+        at = (start.hour * 60 + start.minute) if start else items[-1][2]
+        items.append((kind, at, at + minutes))
+    out = []
+    for day in sample_days():
+        for blk in ("AM", "PM"):
+            plan = SAMPLE_PLAN.get((day.isoformat(), blk), {})
+            for kind, s, e in blocks[blk]:
+                if kind != "Interview":
+                    continue
+                seated = 0
+                for answer in plan.values():
+                    if answer == "Yes":
+                        seated += 1
+                        continue
+                    f, t = answer.split("-")
+                    fm = int(f[:2]) * 60 + int(f[3:])
+                    tm = int(t[:2]) * 60 + int(t[3:])
+                    seated += fm <= s and e <= tm
+                if seated >= min_panel:
+                    out.append((day, time(s // 60, s % 60)))
+    return out
+
+
+FIRST = ["Aisha", "Benjamin", "Chloe", "Daniel", "Elena", "Farid", "Grace", "Hafiz", "Ivy", "Jun Wei",
+         "Kavya", "Liam", "Mei Ling", "Nathan", "Olivia", "Priya", "Qistina", "Rahul", "Sarah", "Thanh",
+         "Umar", "Vanessa", "Wen Hui", "Xavier", "Yasmin", "Zhi Hao"]
+LAST = ["Tan", "Lim", "Rahman", "Ng", "Kumar", "Wong", "Nguyen", "Lee", "Santoso", "Chen", "Ismail", "Goh",
+        "Pillai", "Ong", "Wijaya", "Teo", "Hassan", "Chua", "Reyes", "Koh"]
+
+
+def candidate_names(n):
+    names, i = [], 0
+    while len(names) < n:
+        name = f"{FIRST[i % len(FIRST)]} {LAST[(i * 7 + i // len(FIRST)) % len(LAST)]}"
+        if name not in names:
+            names.append(name)
+        i += 1
+    return names
 
 
 CANDIDATE_COLS = [
@@ -266,11 +328,22 @@ def build_candidates(rows, example: bool) -> Workbook:
 
 
 def sample_batches():
-    """Two batches for the sample event: the first fortnight's early confirmations, then more plus one move."""
-    am = [time(9, 0), time(9, 20), time(9, 40), time(10, 0), time(10, 20), time(10, 50), time(11, 10), time(11, 30), time(11, 50)]
-    first = [(f"Candidate {i + 1:03d}", date(2026, 10, 19), am[i]) for i in range(9)]
-    second = [(f"Candidate {i + 10:03d}", date(2026, 10, 21), am[i]) for i in range(6)]
-    second.append(("Candidate 001", date(2026, 10, 21), am[6]))  # moved from 19 Oct 09:00
+    """
+    Two batches as candidates confirm. Batch 1 fills the first week, leaving
+    a few slots open. Batch 2 fills the second week, repeats two people
+    unchanged, and moves three first-week candidates into open second-week
+    slots.
+    """
+    slots = interview_slots_with_panel()
+    week1 = [s for s in slots if s[0] < date(2026, 10, 26)]
+    week2 = [s for s in slots if s[0] >= date(2026, 10, 26)]
+    names = candidate_names(len(slots))
+    # Leave every 12th first-week slot open, to show gaps being filled later.
+    first = [(names[i], d, t) for i, (d, t) in enumerate(week1) if i % 12 != 11]
+    open_w2 = week2[-3:]
+    second = [(names[len(week1) + i], d, t) for i, (d, t) in enumerate(week2[:-3])]
+    second += [first[0], first[1]]                                     # unchanged
+    second += [(first[j][0], d, t) for j, (d, t) in zip((2, 3, 4), open_w2)]  # moved
     return first, second
 
 
