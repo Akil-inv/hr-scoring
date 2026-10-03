@@ -24,6 +24,8 @@ const interviewNav: NavItem[] = [
   { label: 'Schedule', href: '/dashboard/schedule', icon: '📅' },
   { label: 'Command Centre', href: '/dashboard/operations', icon: '▶' },
   { label: 'Scoring', href: '/dashboard/scoring', icon: '\uD83D\uDCCA' },
+  { label: 'Review', href: '/dashboard/review', icon: '\u270E', roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { label: 'Results', href: '/dashboard/results', icon: '\u2605', roles: ['SUPER_ADMIN', 'ADMIN'] },
   { label: 'Judge links', href: '/dashboard/judge-links', icon: '\u2709' },
   { label: 'Upload setup', href: '/dashboard/upload', icon: '\u21EA', roles: ['SUPER_ADMIN', 'ADMIN'] },
   { label: 'Audit log', href: '/dashboard/audit', icon: '\uD83D\uDCCB' },
