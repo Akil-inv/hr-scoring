@@ -19,7 +19,18 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     return super.canActivate(context);
   }
 
+  /**
+   * The request, for GraphQL and REST alike.
+   *
+   * This guard is registered globally, so it also runs on the REST
+   * controllers (imports, exports, the setup upload). Reading the request
+   * through the GraphQL context alone returns undefined there, and every
+   * authenticated REST call failed before reaching its handler.
+   */
   getRequest(context: ExecutionContext) {
+    if (context.getType<'graphql' | 'http'>() === 'http') {
+      return context.switchToHttp().getRequest();
+    }
     const ctx = GqlExecutionContext.create(context);
     return ctx.getContext().req;
   }
