@@ -173,7 +173,17 @@ if [ "$HEALTHY" = 0 ]; then
 fi
 ok "API healthy"
 
-ADDR=$(dc exec -T tailscale tailscale status --json 2>/dev/null | grep -m1 '"DNSName"' | sed -E 's/.*"DNSName": *"([^"]+)\.?".*/\1/; s/\.$//')
+# Tailscale signs in a few seconds after its container starts, and until then
+# its DNS name is empty. Wait for it, and read the name from the Self block
+# rather than whichever DNSName appears first.
+ADDR=""
+for _ in $(seq 1 20); do
+  ADDR=$(dc exec -T tailscale tailscale status --json 2>/dev/null \
+    | awk '/"Self"/ {self=1} self && /"DNSName"/ {print; exit}' \
+    | sed -E 's/.*"DNSName": *"([^"]*)".*/\1/; s/\.$//')
+  [ -n "$ADDR" ] && break
+  sleep 3
+done
 echo
 if [ -n "$ADDR" ]; then
   ok "deployed — open https://$ADDR from a device on your tailnet"
