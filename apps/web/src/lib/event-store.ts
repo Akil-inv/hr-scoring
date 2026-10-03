@@ -25,6 +25,8 @@ export type EventSummary = {
   endDate?: string | null;
   timezone?: string | null;
   location?: string | null;
+  /** WIZARD or UPLOAD (interview events). Present from `events`. */
+  setupMode?: string | null;
   /** Per-event role. Only populated once `myEvents` is wired. */
   role?: string | null;
 };

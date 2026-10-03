@@ -10,7 +10,8 @@ import {
   CONFLICTS_QUERY, SESSIONS_QUERY, SAVE_SESSIONS_MUTATION, GENERATE_SCHEDULE_MUTATION
 } from '@/lib/queries';
 import StatusBadge from '@/components/status-badge';
-import { useEventId } from '@/lib/event-store';
+import { useCurrentEvent, useEventId } from '@/lib/event-store';
+import InterviewSchedule from '@/components/interview-schedule';
 
 interface PlannerCard {
   teamId: string;
@@ -32,7 +33,7 @@ interface PlannerCard {
   judgeIds: string[];
 }
 
-export default function ScheduleBuilderPage() {
+function WizardSchedulePage() {
   const { data: evData } = useQuery<any>(EVENTS_QUERY);
   const selectedEventId = useEventId();
   const event =
@@ -900,4 +901,15 @@ export default function ScheduleBuilderPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * Events set up by upload have the interview schedule (slots from judges'
+ * availability, candidates placed into them). Wizard events keep the
+ * original schedule builder.
+ */
+export default function SchedulePage() {
+  const event = useCurrentEvent();
+  if (event?.setupMode === 'UPLOAD') return <InterviewSchedule eventId={event.id} />;
+  return <WizardSchedulePage />;
 }

@@ -7,6 +7,8 @@ download, and a realistic sample for testing the upload.
 Writes:
     apps/web/public/templates/event-setup-template.xlsx   (served by the app)
     tools/setup-workbook/sample-event.xlsx                (10 days, 9 judges)
+    apps/web/public/templates/candidates-template.xlsx    (served by the app)
+    tools/setup-workbook/sample-candidates-batch{1,2}.xlsx
 
 The sheet names, column headers and cell formats here are the contract with
 the API's workbook reader (apps/api/src/setup-upload/workbook.ts). Change one,
@@ -50,13 +52,6 @@ FIXED_SHEETS = {
         ("Designation", False, 22, None),
         ("Tier", False, 8, "Optional label: L1, L2, L3, L4, PS or V."),
     ],
-    "Candidates": [
-        ("Candidate name", True, 26, "Must be unique. Optional sheet: candidates can also be added in the app later."),
-        ("Email", False, 30, None),
-        ("Phone", False, 16, None),
-        ("Role applied for", False, 26, None),
-        ("Notes", False, 40, None),
-    ],
     "Criteria": [
         ("Criterion", True, 44, "A category (leave Parent blank) or a row inside one."),
         ("Parent criterion", False, 34, "For a row: the exact name of its category. Blank for a category."),
@@ -74,7 +69,7 @@ README = [
     ("Day template describes one day: each block (AM, PM) is a run of interviews, breaks and calibration with their lengths. Every judging day uses it.", None),
     ("Availability says which judges can sit which block on which date. The system builds every day's slots from the template and seats each judge in the interviews they are available for.", None),
     ("One panel interviews at a time. Interviews with fewer judges than the minimum panel size are left without a panel and shown greyed out.", None),
-    ("Candidates are placed into interview slots afterwards, on the Schedule page.", None),
+    ("Candidates are not in this workbook. Once the schedule exists, upload them in batches with the candidates file (Name, Date, Time), as they confirm.", None),
     ("", None),
     ("Availability format (the only accepted entries)", "head"),
     ("Yes = available for the whole block.", None),
@@ -87,7 +82,7 @@ README = [
     ("Dark blue header = required column. Light blue header = optional. Hover a header for notes.", None),
     ("Yellow cells are examples. Overwrite or delete them before uploading.", None),
     ("Keep the sheet names and column headers as they are. Times are 24-hour HH:MM.", None),
-    ("Candidates and Criteria are optional. With no Criteria, the standard UOB rubric is used.", None),
+    ("Criteria is optional. With no Criteria, the standard UOB rubric is used.", None),
 ]
 
 TEMPLATE_DAY = (
@@ -148,7 +143,7 @@ def build(data: dict, example: bool) -> Workbook:
         c.alignment = Alignment(wrap_text=True, vertical="top")
     readme.column_dimensions["A"].width = 120
 
-    order = ["Event", "Day template", "Judges", "Availability", "Candidates", "Criteria"]
+    order = ["Event", "Day template", "Judges", "Availability", "Criteria"]
     for name in order:
         ws = wb.create_sheet(name)
         if name == "Availability":
@@ -188,10 +183,6 @@ def template_data() -> dict:
             ("dean@example.com", "Yes", "Yes", "No", "No"),
             ("lawrance@example.com", "Yes", "13:00-16:00", "No", "Yes"),
             ("choonhin@example.com", "Yes", "Yes", "Yes", "Yes"),
-        ],
-        "Candidates": [
-            ("Candidate One", "c1@example.com", "+6580000001", "Analyst", None),
-            ("Candidate Two", "c2@example.com", "+6580000002", "Analyst", None),
         ],
     }
 
@@ -239,8 +230,48 @@ def sample_data() -> dict:
         "Judges": [(n, e, f"+659000{i:04d}", "UOB", "Panel member", "L3") for i, (n, e) in enumerate(judges, 1)],
         "availability_columns": cols,
         "availability": availability,
-        "Candidates": [(f"Candidate {i:03d}", f"cand{i:03d}@example.com", None, "Graduate Associate", None) for i in range(1, 41)],
     }
+
+
+CANDIDATE_COLS = [
+    ("Name", True, 30, "The candidate's name. Must be unique in the event; uploading the same name again moves that candidate."),
+    ("Date", True, 13, "YYYY-MM-DD, the day of the interview."),
+    ("Time", True, 10, "24-hour HH:MM: the start time of an interview slot on the schedule, e.g. 09:20."),
+]
+
+CANDIDATE_README = [
+    ("Candidates file", "title"),
+    ("Upload this under Upload candidates once the schedule exists. Upload as often as you like: each file adds the candidates in it, and moves any already placed whose slot changed. Candidates not in the file are left where they are.", None),
+    ("", None),
+    ("Name, Date and Time are all required. Time is the start of an interview slot exactly as it appears on the schedule.", None),
+    ("A row is refused if the slot doesn't exist, has no panel, already has another candidate, or if the candidate's interview has already started.", None),
+]
+
+
+def build_candidates(rows, example: bool) -> Workbook:
+    wb = Workbook()
+    readme = wb.active
+    readme.title = "Read me"
+    for i, (line, kind) in enumerate(CANDIDATE_README, 1):
+        c = readme.cell(i, 1, line)
+        c.font = Font(name=FONT, bold=kind == "title", size=14 if kind == "title" else 11)
+        c.alignment = Alignment(wrap_text=True, vertical="top")
+    readme.column_dimensions["A"].width = 110
+    ws = wb.create_sheet("Candidates")
+    style_header(ws, CANDIDATE_COLS)
+    write_rows(ws, rows, example)
+    for r in range(2, len(rows) + 2):
+        ws.cell(r, 2).number_format = "yyyy-mm-dd"
+    return wb
+
+
+def sample_batches():
+    """Two batches for the sample event: the first fortnight's early confirmations, then more plus one move."""
+    am = [time(9, 0), time(9, 20), time(9, 40), time(10, 0), time(10, 20), time(10, 50), time(11, 10), time(11, 30), time(11, 50)]
+    first = [(f"Candidate {i + 1:03d}", date(2026, 10, 19), am[i]) for i in range(9)]
+    second = [(f"Candidate {i + 10:03d}", date(2026, 10, 21), am[i]) for i in range(6)]
+    second.append(("Candidate 001", date(2026, 10, 21), am[6]))  # moved from 19 Oct 09:00
+    return first, second
 
 
 if __name__ == "__main__":
@@ -251,3 +282,11 @@ if __name__ == "__main__":
     sample = ROOT / "tools/setup-workbook/sample-event.xlsx"
     build(sample_data(), example=False).save(sample)
     print("wrote", sample.relative_to(ROOT))
+    ctemplate = ROOT / "apps/web/public/templates/candidates-template.xlsx"
+    build_candidates([("Candidate One", date(2026, 10, 19), time(9, 0)), ("Candidate Two", date(2026, 10, 19), time(9, 20))], example=True).save(ctemplate)
+    print("wrote", ctemplate.relative_to(ROOT))
+    first, second = sample_batches()
+    for n, rows in ((1, first), (2, second)):
+        out = ROOT / f"tools/setup-workbook/sample-candidates-batch{n}.xlsx"
+        build_candidates(rows, example=False).save(out)
+        print("wrote", out.relative_to(ROOT))

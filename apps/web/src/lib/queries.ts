@@ -5,7 +5,7 @@ export const LOGIN_MUTATION = `
 `;
 
 export const ME_QUERY = `query { me { id email role } }`;
-export const EVENTS_QUERY = `query { events { id name description location timezone startDate endDate status sessionDurationMinutes minJudgesPerTeam maxJudgesPerTeam } }`;
+export const EVENTS_QUERY = `query { events { id name description location timezone startDate endDate status setupMode sessionDurationMinutes minJudgesPerTeam maxJudgesPerTeam } }`;
 
 export const SET_ROOM_AVAILABILITY = `
   mutation SetRoomAvailability($eventId: String!, $roomId: String!, $date: DateTime!, $session: String!, $unavailable: Boolean!) {
