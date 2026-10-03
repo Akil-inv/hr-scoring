@@ -11,7 +11,7 @@ const RANKINGS_QUERY = `query R($eventId: String!) { rankings(eventId: $eventId)
 const TRACKS_QUERY = `query T($eventId: String!) { tracks(eventId: $eventId) { id name status } }`;
 const TIMESLOTS_QUERY = `query TS($eventId: String!) { timeSlots(eventId: $eventId) { id slotType } }`;
 const CONFLICTS_QUERY = `query C($eventId: String!) { conflicts(eventId: $eventId) { id status } }`;
-const SCORING_TEMPLATE_QUERY = `query ST($eventId: String!) { scoringTemplates(eventId: $eventId) { id name status criteria { id name maxScore } } }`;
+const SCORING_TEMPLATE_QUERY = `query ST($eventId: String!) { scoringTemplates(eventId: $eventId) { id name status criteria { id name maxScore parentId } } }`;
 
 // ─── Reusable visual components ───
 const Bar = ({ value, max, color = '#7c3aed', height = 6 }: { value: number; max: number; color?: string; height?: number }) => (
@@ -191,8 +191,13 @@ export default function DashboardPage() {
 
     const activeTracks = tracks.filter((t: any) => t.status !== 'ARCHIVED').length;
     const judgingSlots = timeSlots.filter((s: any) => s.slotType === 'JUDGING').length;
-    const criteriaCount = template?.criteria?.length || 0;
-    const maxScore = template?.criteria?.reduce((sum: number, c: any) => sum + (c.maxScore || 0), 0) || 0;
+    // Rows that are scored, not the categories that group them: counting both
+    // doubled the points for any rubric with categories, the UOB one included.
+    const criteria = template?.criteria || [];
+    const parentIds = new Set(criteria.map((c: any) => c.parentId).filter(Boolean));
+    const scoredRows = criteria.filter((c: any) => !parentIds.has(c.id));
+    const criteriaCount = scoredRows.length;
+    const maxScore = scoredRows.reduce((sum: number, c: any) => sum + (c.maxScore || 0), 0);
 
     const readyChecks = [
       { ok: !!event, label: 'Event configured', sub: event?.name || 'Not set' },

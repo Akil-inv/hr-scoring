@@ -7,7 +7,7 @@ import { EVENTS_QUERY, SESSIONS_QUERY, JUDGES_QUERY, ROOMS_QUERY, TIMESLOTS_QUER
 import StatusBadge from '@/components/status-badge';
 import CountryFlag from '@/components/country-flag';
 import PlatformChip, { platformColor } from '@/components/platform-chip';
-import { useEventId } from '@/lib/event-store';
+import { useCurrentEvent, useEventId } from '@/lib/event-store';
 
 const UPDATE_STAGE = `mutation U($input: UpdateStageInput!) { updateSessionStage(input: $input) { success message } }`;
 const SWAP_SESSIONS_MUT = `mutation SS($input: SwapSessionsInput!) { swapSessions(input: $input) { success message } }`;
@@ -20,6 +20,10 @@ const ADD_JUDGE_MUT = `mutation AJ($input: AddJudgeInput!) { addJudgeToSession(i
 export default function CommandCentrePage() {
   const { data: evData } = useQuery<any>(EVENTS_QUERY);
   const selectedEventId = useEventId();
+  // Times are shown where the event happens, not where the browser is. 'UTC'
+  // is the schema default nobody chose, so it falls back to Singapore.
+  const currentEvent = useCurrentEvent();
+  const tz = currentEvent?.timezone && currentEvent.timezone !== 'UTC' ? currentEvent.timezone : 'Asia/Singapore';
   const event =
     evData?.events?.find((e: any) => e.id === selectedEventId) ?? evData?.events?.[0];
   const eventId = event?.id;
@@ -165,11 +169,21 @@ export default function CommandCentrePage() {
   };
 
   // Helpers
-  const getHour = (s: any) => s.scheduledStart ? new Date(s.scheduledStart).getHours() : 12;
-  const getDate = (s: any) => s.scheduledStart ? new Date(s.scheduledStart).toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Unknown';
-  const getTime = (s: any) => s.scheduledStart ? new Date(s.scheduledStart).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
+  const getHour = (s: any) => s.scheduledStart
+    ? Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }).format(new Date(s.scheduledStart)))
+    : 12;
+  const getDate = (s: any) => s.scheduledStart ? new Date(s.scheduledStart).toLocaleDateString('en-SG', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }) : 'Unknown';
+  const getTime = (s: any) => s.scheduledStart ? new Date(s.scheduledStart).toLocaleTimeString('en-SG', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
 
-  const dates = [...new Set(sessions.map((s: any) => getDate(s)))].sort((a, b) => String(a).localeCompare(String(b)));
+  // Day tabs in calendar order. Sorting the labels as text put "Fri, 10 Oct"
+  // before "Thu, 9 Oct", which on a ten-day event scrambles the whole row.
+  const firstStart = new Map<string, string>();
+  for (const s of sessions as any[]) {
+    const d = getDate(s);
+    const t = s.scheduledStart || '';
+    if (!firstStart.has(d) || t < firstStart.get(d)!) firstStart.set(d, t);
+  }
+  const dates = [...firstStart.keys()].sort((a, b) => firstStart.get(a)!.localeCompare(firstStart.get(b)!));
   const roomNames = rooms.map((r: any) => r.name).sort((a, b) => String(a).localeCompare(String(b)));
 
   useEffect(() => { if (dates.length > 0 && !activeDate) setActiveDate(dates[0]); }, [dates]);
@@ -230,7 +244,7 @@ export default function CommandCentrePage() {
   const getEmptySlots = (sessionId: string) => {
     const s = sessions.find((ss: any) => ss.id === sessionId);
     if (!s) return [];
-    const sessionDate = s.scheduledStart ? new Date(s.scheduledStart).toLocaleDateString("en-CA", { timeZone: "Asia/Singapore" }) : null;
+    const sessionDate = s.scheduledStart ? new Date(s.scheduledStart).toLocaleDateString("en-CA", { timeZone: tz }) : null;
     const judgingSlots = timeSlots.filter((ts: any) => ts.slotType === "JUDGING");
     const occupiedSlotRooms = new Set(sessions.filter((ss: any) => !["CANCELLED", "RESCHEDULED"].includes(ss.stage)).map((ss: any) => ss.timeSlotId + ":" + ss.roomId));
     const available: any[] = [];
@@ -238,8 +252,8 @@ export default function CommandCentrePage() {
       for (const room of rooms) {
         const key = ts.id + ":" + room.id;
         if (!occupiedSlotRooms.has(key)) {
-          const slotTime = new Date(ts.startTime).toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore", hour: "2-digit", minute: "2-digit", hour12: false });
-          const slotDate = new Date(ts.startTime).toLocaleDateString("en-SG", { timeZone: "Asia/Singapore", weekday: "short", day: "numeric", month: "short" });
+          const slotTime = new Date(ts.startTime).toLocaleTimeString("en-SG", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+          const slotDate = new Date(ts.startTime).toLocaleDateString("en-SG", { timeZone: tz, weekday: "short", day: "numeric", month: "short" });
           available.push({ slotId: ts.id, roomId: room.id, roomName: room.name, time: slotTime, date: slotDate });
         }
       }
