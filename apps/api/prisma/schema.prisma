@@ -42,6 +42,7 @@ model User {
 
   eventUsers    EventUser[]
   daysClosed    JudgingDay[]   @relation("day_closed_by")
+  daysLocked    JudgingDay[]   @relation("day_panels_locked_by")
   linksIssued   JudgeLink[]    @relation("link_created_by")
   decisionsMade TeamDecision[] @relation("decided_by")
 
@@ -168,6 +169,7 @@ enum SlotType {
   LUNCH
   CEREMONY
   BLOCKED
+  CALIBRATION
 }
 
 /// A half-day when a room cannot be used.
@@ -200,10 +202,15 @@ model TimeSlot {
   startTime DateTime @map("start_time") @db.Timestamptz
   endTime   DateTime @map("end_time") @db.Timestamptz
   slotType  SlotType @default(JUDGING) @map("slot_type")
+  /// Interview events: the half-day block this slot belongs to (e.g. AM) and
+  /// its position in the block. Null for wizard events.
+  block     String?
+  sequence  Int?
   createdAt DateTime @default(now()) @map("created_at")
 
   event    Event            @relation(fields: [eventId], references: [id])
   sessions JudgingSession[]
+  panel    SlotJudge[]
 
   @@map("time_slots")
 }
@@ -332,6 +339,7 @@ model Judge {
   conflicts     ConflictDeclaration[]
   sessionJudges SessionJudge[]
   links         JudgeLink[]
+  slotPanels    SlotJudge[]
   scorecards    Scorecard[]
 
   @@unique([eventId, email])
@@ -734,18 +742,23 @@ enum JudgingDayStatus {
 /// One row per judging date of an event. Closing the day revokes its judge
 /// links and locks its scorecards; a closed day is never reopened.
 model JudgingDay {
-  id         String           @id @default(uuid()) @db.Uuid
-  eventId    String           @map("event_id") @db.Uuid
-  date       DateTime         @db.Date
-  status     JudgingDayStatus @default(OPEN)
-  closedById String?          @map("closed_by") @db.Uuid
-  closedAt   DateTime?        @map("closed_at")
-  createdAt  DateTime         @default(now()) @map("created_at")
-  updatedAt  DateTime         @updatedAt @map("updated_at")
+  id               String           @id @default(uuid()) @db.Uuid
+  eventId          String           @map("event_id") @db.Uuid
+  date             DateTime         @db.Date
+  status           JudgingDayStatus @default(OPEN)
+  closedById       String?          @map("closed_by") @db.Uuid
+  closedAt         DateTime?        @map("closed_at")
+  /// Once set, the day's judge panels are fixed: a new availability upload
+  /// leaves this day alone. Panels can still be edited by hand.
+  panelsLockedAt   DateTime?        @map("panels_locked_at")
+  panelsLockedById String?          @map("panels_locked_by") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
 
-  event    Event       @relation(fields: [eventId], references: [id])
-  closedBy User?       @relation("day_closed_by", fields: [closedById], references: [id])
-  links    JudgeLink[]
+  event          Event       @relation(fields: [eventId], references: [id])
+  closedBy       User?       @relation("day_closed_by", fields: [closedById], references: [id])
+  panelsLockedBy User?       @relation("day_panels_locked_by", fields: [panelsLockedById], references: [id])
+  links          JudgeLink[]
 
   @@unique([eventId, date])
   @@map("judging_days")
@@ -823,4 +836,21 @@ model TeamDecision {
   @@index([eventId])
   @@index([sessionId])
   @@map("team_decisions")
+}
+
+/// The panel for one interview slot (interview events). Built from judges'
+/// availability: a judge sits a slot when their window covers it entirely.
+/// A candidate's session copies its slot's panel when the candidate is placed.
+model SlotJudge {
+  id         String   @id @default(uuid()) @db.Uuid
+  timeSlotId String   @map("time_slot_id") @db.Uuid
+  judgeId    String   @map("judge_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  timeSlot TimeSlot @relation(fields: [timeSlotId], references: [id], onDelete: Cascade)
+  judge    Judge    @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+
+  @@unique([timeSlotId, judgeId])
+  @@index([judgeId])
+  @@map("slot_judges")
 }
