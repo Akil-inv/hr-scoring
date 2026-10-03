@@ -23,7 +23,7 @@ export default function LoginPage() {
       if (result.error) { setError(result.error.message); return; }
       const { accessToken, user } = result.data.login;
       setAuth(accessToken, user);
-      router.push('/dashboard');
+      router.push('/dashboard/schedule');
     } catch (err: any) { setError(err.message || 'Login failed');
     } finally { setLoading(false); }
   };

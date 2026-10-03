@@ -4,13 +4,14 @@ import { useQuery } from '@/lib/use-graphql';
 import { useAuthStore } from '@/lib/auth-store';
 import { createClient } from '@/lib/graphql-client';
 import { EVENTS_QUERY, SCORECARDS_BY_EVENT_QUERY, SCORING_TEMPLATES_QUERY, SESSIONS_QUERY } from '@/lib/queries';
-import { useEventId } from '@/lib/event-store';
+import { useCurrentEvent, useEventId } from '@/lib/event-store';
 
 const REOPEN_MUTATION = `mutation R($id: String!, $reason: String!) { reopenScorecard(scorecardId: $id, reason: $reason) { id status } }`;
 
 export default function ScoringPage() {
   const { data: evData } = useQuery<any>(EVENTS_QUERY);
   const selectedEventId = useEventId();
+  const currentEvent = useCurrentEvent();
   const event =
     evData?.events?.find((e: any) => e.id === selectedEventId) ?? evData?.events?.[0];
   const eventId = event?.id;
@@ -199,7 +200,7 @@ export default function ScoringPage() {
       <div className="sc-layout">
         {/* Left: Team list */}
         <div className="sc-teams">
-          <div className="sc-teams-hdr">Teams ({teams.length})</div>
+          <div className="sc-teams-hdr">{currentEvent?.setupMode === 'UPLOAD' ? 'Candidates' : 'Teams'} ({teams.length})</div>
           <div className="sc-teams-list">
             {teams.map(team => {
               const prog = getTeamProgress(team);

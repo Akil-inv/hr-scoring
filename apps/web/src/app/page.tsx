@@ -9,7 +9,7 @@ export default function Home() {
   const token = useAuthStore((s) => s.token);
 
   useEffect(() => {
-    router.push(token ? '/dashboard' : '/login');
+    router.push(token ? '/dashboard/schedule' : '/login');
   }, [token, router]);
 
   return null;

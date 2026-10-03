@@ -4,7 +4,8 @@ import { useQuery } from '@/lib/use-graphql';
 import { useAuthStore } from '@/lib/auth-store';
 import { createClient } from '@/lib/graphql-client';
 import { EVENTS_QUERY, SESSIONS_QUERY, JUDGES_QUERY, ROOMS_QUERY } from '@/lib/queries';
-import { useEventId } from '@/lib/event-store';
+import { useCurrentEvent, useEventId } from '@/lib/event-store';
+import { useRouter } from 'next/navigation';
 
 const SCORECARDS_QUERY = `query SC($eventId: String!) { scorecardsByEvent(eventId: $eventId) { id status totalScore judgeName teamName judgeId } }`;
 const RANKINGS_QUERY = `query R($eventId: String!) { rankings(eventId: $eventId) { id teamName totalScore rank trackName advancesToFinals pocAward } }`;
@@ -40,7 +41,7 @@ const Pill = ({ label, value, color }: { label: string; value: number; color: st
   </div>
 );
 
-export default function DashboardPage() {
+function WizardDashboardPage() {
   const { data: evData } = useQuery<any>(EVENTS_QUERY);
   const selectedEventId = useEventId();
   const event =
@@ -740,4 +741,17 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * The readiness dashboard belongs to wizard events. Interview events start on
+ * their schedule, so this page sends them there.
+ */
+export default function DashboardPage() {
+  const event = useCurrentEvent();
+  const router = useRouter();
+  const interview = event?.setupMode !== 'WIZARD';
+  useEffect(() => { if (interview) router.replace('/dashboard/schedule'); }, [interview, router]);
+  if (interview) return null;
+  return <WizardDashboardPage />;
 }

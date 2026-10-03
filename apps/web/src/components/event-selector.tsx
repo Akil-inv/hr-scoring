@@ -132,7 +132,7 @@ export default function EventSelector() {
     return (
       <div className="px-3 pt-3">
         <Link
-          href="/dashboard/event"
+          href="/dashboard/upload"
           className={`${shell} block hover:border-[#7c3aed]/30 hover:bg-[#7c3aed]/[0.06]`}
         >
           <p className="text-[10px] uppercase tracking-[0.15em] text-[#4a5568]">Event</p>
@@ -234,7 +234,7 @@ export default function EventSelector() {
           })}
 
           <Link
-            href="/dashboard/event"
+            href="/dashboard/upload"
             onClick={() => setOpen(false)}
             className="mt-1 block border-t border-white/[0.06] px-2.5 pb-1 pt-2 text-[12px] text-[#6b7a90] hover:text-[#a78bfa]"
           >

@@ -14,15 +14,25 @@ type NavItem = {
   roles?: string[];
 };
 
-const navItems: NavItem[] = [
+/**
+ * Interview events (set up by upload) and wizard events need different
+ * menus. Interview events get only what that process uses; the hackathon
+ * wizard's pages (readiness dashboard, event wizard, rankings, conflicts)
+ * stay for wizard events only.
+ */
+const interviewNav: NavItem[] = [
+  { label: 'Schedule', href: '/dashboard/schedule', icon: '📅' },
+  { label: 'Command Centre', href: '/dashboard/operations', icon: '▶' },
+  { label: 'Scoring', href: '/dashboard/scoring', icon: '\uD83D\uDCCA' },
+  { label: 'Judge links', href: '/dashboard/judge-links', icon: '\u2709' },
+  { label: 'Upload setup', href: '/dashboard/upload', icon: '\u21EA', roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { label: 'Audit log', href: '/dashboard/audit', icon: '\uD83D\uDCCB' },
+  { label: 'Users & roles', href: '/dashboard/users', icon: '\uD83D\uDC65', roles: ['SUPER_ADMIN', 'ADMIN'] },
+];
+
+const wizardNav: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: '\u229E' },
   { label: 'Event Setup', href: '/dashboard/event', icon: '⚙' },
-  {
-    label: 'Upload setup',
-    href: '/dashboard/upload',
-    icon: '\u21EA',
-    roles: ['SUPER_ADMIN', 'ADMIN'],
-  },
   { label: 'Schedule', href: '/dashboard/schedule', icon: '📅' },
   { label: 'Command Centre', href: '/dashboard/operations', icon: '▶' },
   { label: 'Scoring', href: '/dashboard/scoring', icon: '\uD83D\uDCCA' },
@@ -30,12 +40,7 @@ const navItems: NavItem[] = [
   { label: 'Conflicts', href: '/dashboard/conflicts', icon: '\u26A0' },
   { label: 'Judge Links', href: '/dashboard/judge-links', icon: '\u2709' },
   { label: 'Audit Log', href: '/dashboard/audit', icon: '\uD83D\uDCCB' },
-  {
-    label: 'Users & roles',
-    href: '/dashboard/users',
-    icon: '\uD83D\uDC65',
-    roles: ['SUPER_ADMIN', 'ADMIN'],
-  },
+  { label: 'Users & roles', href: '/dashboard/users', icon: '\uD83D\uDC65', roles: ['SUPER_ADMIN', 'ADMIN'] },
 ];
 
 export default function Sidebar() {
@@ -44,6 +49,9 @@ export default function Sidebar() {
   const { user, logout } = useAuthStore();
   const clearEvent = useEventStore((s) => s.clear);
 
+  const event = useEventStore((s) => s.event);
+  // No event yet counts as interviews: that is what this platform sets up.
+  const navItems = event?.setupMode === 'WIZARD' ? wizardNav : interviewNav;
   const visibleItems = navItems.filter(
     (item) => !item.roles || item.roles.includes(user?.role ?? ''),
   );
