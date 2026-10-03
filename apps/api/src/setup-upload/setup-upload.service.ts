@@ -15,7 +15,7 @@ export type UploadPreview = Omit<CheckResult, 'workbook'> & {
 export type UploadResult = {
   eventId: string;
   replaced: boolean;
-  counts: { rooms: number; tracks: number; teams: number; judges: number; sessions: number; days: number; links: number };
+  counts: { judges: number; days: number; interviews: number; interviewsWithPanel: number; links: number };
   warnings: Issue[];
 };
 
@@ -23,6 +23,9 @@ export type UploadResult = {
 export function newLinkToken(): string {
   return randomBytes(18).toString('base64url');
 }
+
+/** The one room an interview event runs in: one panel interviews at a time. */
+export const PANEL_ROOM_NAME = 'Interview panel';
 
 @Injectable()
 export class SetupUploadService {
@@ -32,13 +35,12 @@ export class SetupUploadService {
   ) {}
 
   /**
-   * Check a workbook and report what it would create, without saving anything.
-   * Adds the checks that need the database: admin accounts that don't exist,
-   * and whether an event being replaced can still be replaced.
+   * Check a workbook and report the schedule it would build, without saving
+   * anything. Adds the checks that need the database: admin accounts that
+   * don't exist, and whether an event being replaced can still be replaced.
    */
   async preview(buffer: Buffer, replaceEventId?: string): Promise<UploadPreview> {
-    const result = checkWorkbook(buffer);
-    const { workbook, ...rest } = result;
+    const { workbook, ...rest } = checkWorkbook(buffer);
     const errors = [...rest.errors];
     const warnings = [...rest.warnings];
 
@@ -50,8 +52,7 @@ export class SetupUploadService {
     }
 
     if (workbook.event) {
-      const missing = await this.adminsWithoutAccounts(workbook.event.adminEmails);
-      for (const email of missing) {
+      for (const email of await this.adminsWithoutAccounts(workbook.event.adminEmails)) {
         warnings.push({
           sheet: 'Event',
           row: 2,
@@ -114,8 +115,10 @@ export class SetupUploadService {
     existingEventId?: string,
   ): Promise<Omit<UploadResult, 'replaced' | 'warnings'>> {
     const ev = wb.event!;
-    const dates = [...new Set(wb.sessions.map((s) => s.date))].sort();
+    const dates = [...new Set(wb.schedule.map((b) => b.date))].sort();
     const asDate = (d: string) => new Date(`${d}T00:00:00.000Z`);
+    const interviews = wb.schedule.flatMap((b) => b.slots.filter((s) => s.kind === 'INTERVIEW'));
+    const firstInterview = wb.template.find((t) => t.kind === 'INTERVIEW')!;
 
     const eventData = {
       name: ev.name,
@@ -125,12 +128,10 @@ export class SetupUploadService {
       endDate: asDate(dates[dates.length - 1]),
       judgingStart: asDate(dates[0]),
       judgingEnd: asDate(dates[dates.length - 1]),
-      sessionDurationMinutes: ev.sessionMinutes,
-      // The Command Centre's health check and Remove Judge read these. The
-      // schema default of 3 would flag every 2-judge panel in the file as
-      // unhealthy, so take them from the panels actually uploaded.
-      minJudgesPerTeam: Math.min(...wb.sessions.map((s) => s.judgeEmails.length)),
-      maxJudgesPerTeam: Math.max(...wb.sessions.map((s) => s.judgeEmails.length)),
+      sessionDurationMinutes: firstInterview.end - firstInterview.start,
+      // The Command Centre's panel health check and Remove Judge read these.
+      minJudgesPerTeam: ev.minPanel,
+      maxJudgesPerTeam: Math.max(ev.minPanel, ...interviews.map((s) => s.panel.length)),
       status: 'ACTIVE' as const,
       setupMode: 'UPLOAD' as const,
     };
@@ -146,120 +147,46 @@ export class SetupUploadService {
       });
     }
 
-    // Rooms
-    const roomId = new Map<string, string>();
-    await tx.room.createMany({
-      data: wb.rooms.map((r) => {
-        const id = randomUUID();
-        roomId.set(r.name.toLowerCase(), id);
-        return { id, eventId, name: r.name, locationDescription: r.location, isVirtual: false, hasVideoConferencing: r.hasVideo };
-      }),
-    });
-
-    // Tracks, in the order they first appear on the Teams sheet
-    const trackId = new Map<string, string>();
-    const trackNames = [...new Set(wb.teams.map((t) => t.track).filter((t): t is string => !!t))];
-    await tx.challengeTrack.createMany({
-      data: trackNames.map((name, i) => {
-        const id = randomUUID();
-        trackId.set(name.toLowerCase(), id);
-        return { id, eventId, name, displayOrder: i };
-      }),
-    });
-
-    // Teams
-    const scheduled = new Set(wb.sessions.map((s) => s.team.toLowerCase()));
-    const teamId = new Map<string, string>();
-    await tx.team.createMany({
-      data: wb.teams.map((t) => {
-        const id = randomUUID();
-        teamId.set(t.name.toLowerCase(), id);
-        return {
-          id,
-          eventId,
-          trackId: t.track ? trackId.get(t.track.toLowerCase()) ?? null : null,
-          name: t.name,
-          projectName: t.projectName,
-          country: t.country,
-          organisation: t.organisation,
-          teamLeadName: t.leadName,
-          teamLeadEmail: t.leadEmail,
-          presentationMode: t.mode,
-          problemStatement: t.problemStatement,
-          solutionSummary: t.solutionSummary,
-          status: scheduled.has(t.name.toLowerCase()) ? ('SCHEDULED' as const) : ('ELIGIBLE' as const),
-        };
-      }),
-    });
+    await tx.room.create({ data: { eventId, name: PANEL_ROOM_NAME, hasVideoConferencing: false } });
 
     // Judges. maxSessions only matters to the automatic scheduler, which an
-    // uploaded event never uses; it is set high enough not to mislead.
-    const sessionsPerJudge = new Map<string, number>();
-    for (const s of wb.sessions) for (const e of s.judgeEmails) sessionsPerJudge.set(e, (sessionsPerJudge.get(e) ?? 0) + 1);
+    // uploaded event never uses; set high enough not to mislead.
+    const seated = new Map<string, number>();
+    for (const s of interviews) for (const e of s.panel) seated.set(e, (seated.get(e) ?? 0) + 1);
     const judgeId = new Map<string, string>();
     await tx.judge.createMany({
       data: wb.judges.map((j) => {
         const id = randomUUID();
         judgeId.set(j.email, id);
         return {
-          id,
-          eventId,
-          name: j.name,
-          email: j.email,
-          phone: j.phone,
-          organisation: j.organisation,
-          designation: j.designation,
-          judgeType: 'BUSINESS' as const,
-          judgeTier: j.tier ?? 'L3',
-          maxSessions: Math.max(10, sessionsPerJudge.get(j.email) ?? 0),
+          id, eventId, name: j.name, email: j.email, phone: j.phone, organisation: j.organisation,
+          designation: j.designation, judgeType: 'BUSINESS' as const, judgeTier: j.tier ?? 'L3',
+          maxSessions: Math.max(10, seated.get(j.email) ?? 0),
         };
       }),
     });
 
-    // Rubric: the sheet's, or the standard one. Marked ACTIVE straight away —
-    // the checks that activation would run have already passed.
     await this.createRubric(tx, eventId, wb);
 
-    // Time slots: one per distinct start/end, shared by every room using it.
-    const slotKey = (a: Date, b: Date) => `${a.toISOString()}|${b.toISOString()}`;
-    const slotId = new Map<string, string>();
+    // Every item of every scheduled block becomes a time slot, breaks and
+    // calibration included, so the day reads in full on the schedule.
     const slotRows: Prisma.TimeSlotCreateManyInput[] = [];
-    for (const s of wb.sessions) {
-      const k = slotKey(s.startUtc, s.endUtc);
-      if (slotId.has(k)) continue;
-      const id = randomUUID();
-      slotId.set(k, id);
-      slotRows.push({ id, eventId, date: asDate(s.date), startTime: s.startUtc, endTime: s.endUtc, slotType: 'JUDGING' });
-    }
-    await tx.timeSlot.createMany({ data: slotRows });
-
-    // Sessions, panels and empty scorecards
-    const sessionRows: Prisma.JudgingSessionCreateManyInput[] = [];
-    const panelRows: Prisma.SessionJudgeCreateManyInput[] = [];
-    const scorecardRows: Prisma.ScorecardCreateManyInput[] = [];
-    for (const s of wb.sessions) {
-      const id = randomUUID();
-      const tId = teamId.get(s.team.toLowerCase())!;
-      sessionRows.push({
-        id,
-        eventId,
-        teamId: tId,
-        roomId: roomId.get(s.room.toLowerCase())!,
-        timeSlotId: slotId.get(slotKey(s.startUtc, s.endUtc))!,
-        scheduledStart: s.startUtc,
-        scheduledEnd: s.endUtc,
-      });
-      for (const email of s.judgeEmails) {
-        const jId = judgeId.get(email)!;
-        panelRows.push({ sessionId: id, judgeId: jId });
-        scorecardRows.push({ sessionId: id, judgeId: jId, teamId: tId, eventId });
+    const panelRows: Prisma.SlotJudgeCreateManyInput[] = [];
+    for (const b of wb.schedule) {
+      for (const s of b.slots) {
+        const id = randomUUID();
+        slotRows.push({
+          id, eventId, date: asDate(b.date), startTime: s.startUtc, endTime: s.endUtc,
+          slotType: s.kind === 'INTERVIEW' ? 'JUDGING' : s.kind === 'BREAK' ? 'BREAK' : 'CALIBRATION',
+          block: b.block, sequence: s.sequence,
+        });
+        for (const email of s.panel) panelRows.push({ timeSlotId: id, judgeId: judgeId.get(email)! });
       }
     }
-    await tx.judgingSession.createMany({ data: sessionRows });
-    await tx.sessionJudge.createMany({ data: panelRows });
-    await tx.scorecard.createMany({ data: scorecardRows });
+    await tx.timeSlot.createMany({ data: slotRows });
+    await tx.slotJudge.createMany({ data: panelRows });
 
-    // Judging days, and one link per judge per day they judge
+    // Judging days, and one link per judge per day they sit at least one panel.
     const dayId = new Map<string, string>();
     await tx.judgingDay.createMany({
       data: dates.map((d) => {
@@ -269,16 +196,12 @@ export class SetupUploadService {
       }),
     });
     const judgeDays = new Set<string>();
-    for (const s of wb.sessions) for (const e of s.judgeEmails) judgeDays.add(`${e}|${s.date}`);
+    for (const b of wb.schedule) for (const s of b.slots) for (const e of s.panel) judgeDays.add(`${e}|${b.date}`);
     const links = [...judgeDays].map((k) => {
       const [email, date] = k.split('|');
       return {
-        token: newLinkToken(),
-        eventId,
-        judgeId: judgeId.get(email)!,
-        scope: 'DAY' as const,
-        dayId: dayId.get(date)!,
-        createdById: userId,
+        token: newLinkToken(), eventId, judgeId: judgeId.get(email)!, scope: 'DAY' as const,
+        dayId: dayId.get(date)!, createdById: userId,
       };
     });
     await tx.judgeLink.createMany({ data: links });
@@ -286,12 +209,10 @@ export class SetupUploadService {
     return {
       eventId,
       counts: {
-        rooms: wb.rooms.length,
-        tracks: trackNames.length,
-        teams: wb.teams.length,
         judges: wb.judges.length,
-        sessions: wb.sessions.length,
         days: dates.length,
+        interviews: interviews.length,
+        interviewsWithPanel: interviews.filter((s) => s.panel.length > 0).length,
         links: links.length,
       },
     };
@@ -304,18 +225,19 @@ export class SetupUploadService {
         eventId,
         name: fromSheet ? `${wb.event!.name} rubric` : UOB_RUBRIC.name,
         description: fromSheet ? 'From the setup upload' : UOB_RUBRIC.description,
+        // Activation's checks (categories total 100, rows fill each category)
+        // already passed in the workbook check.
         status: 'ACTIVE',
       },
     });
 
     // Each category followed by its rows, so displayOrder reads top to bottom
-    // the way the judge portal shows it.
-    type Row = Prisma.ScoringCriterionCreateManyInput;
-    const rows: Row[] = [];
+    // the way the judge portal shows it. Parents precede children, which the
+    // parent foreign key needs within one insert.
+    const rows: Prisma.ScoringCriterionCreateManyInput[] = [];
     let order = 0;
     if (fromSheet) {
-      const cats = wb.criteria.filter((c) => !c.parent);
-      for (const cat of cats) {
+      for (const cat of wb.criteria.filter((c) => !c.parent)) {
         const catId = randomUUID();
         rows.push({
           id: catId, templateId: template.id, name: cat.name, maxScore: cat.maxScore, weight: 1,
@@ -343,8 +265,6 @@ export class SetupUploadService {
         }
       }
     }
-    // Parents before children: createMany inserts in order, and the parent
-    // foreign key is checked row by row.
     await tx.scoringCriterion.createMany({ data: rows });
   }
 
@@ -352,8 +272,8 @@ export class SetupUploadService {
 
   /**
    * Why an event's setup can't be replaced, if it can't. Only uploaded events
-   * are replaceable, and only before anyone has entered a score: after that,
-   * the upload would throw away judging.
+   * are replaceable, and only before any candidate has been placed: after
+   * that, replacing would pull candidates out of their interviews.
    */
   private async replaceBlocker(eventId: string): Promise<{ error?: string; name?: string }> {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
@@ -361,12 +281,10 @@ export class SetupUploadService {
     if (event.setupMode !== 'UPLOAD') {
       return { error: `"${event.name}" was set up with the wizard, so it can't be replaced by an upload.` };
     }
-    const started = await this.prisma.scorecard.count({
-      where: { eventId, OR: [{ status: { not: 'NOT_STARTED' } }, { criterionScores: { some: {} } }] },
-    });
-    if (started > 0) {
+    const placed = await this.prisma.judgingSession.count({ where: { eventId } });
+    if (placed > 0) {
       return {
-        error: `Scoring has started for "${event.name}" (${started} scorecard${started === 1 ? '' : 's'}), so its setup can no longer be replaced. Make changes in the Command Centre instead.`,
+        error: `${placed} candidate${placed === 1 ? ' is' : 's are'} already placed in "${event.name}", so its setup can no longer be replaced. Change panels on the Schedule page instead.`,
       };
     }
     return { name: event.name };
@@ -374,19 +292,19 @@ export class SetupUploadService {
 
   /** Remove an event's setup, keeping the event row, its admins and its audit trail. */
   private async clearEventSetup(tx: Prisma.TransactionClient, eventId: string) {
-    const sessions = { session: { eventId } };
     await tx.teamDecision.deleteMany({ where: { eventId } });
     await tx.judgeLink.deleteMany({ where: { eventId } });
     await tx.judgingDay.deleteMany({ where: { eventId } });
     await tx.criterionScore.deleteMany({ where: { scorecard: { eventId } } });
     await tx.scorecard.deleteMany({ where: { eventId } });
-    await tx.sessionJudge.deleteMany({ where: sessions });
+    await tx.sessionJudge.deleteMany({ where: { session: { eventId } } });
     await tx.rankingResult.deleteMany({ where: { eventId } });
     await tx.judgingSession.deleteMany({ where: { eventId } });
     await tx.judgeMessage.deleteMany({ where: { eventId } });
     await tx.conflictDeclaration.deleteMany({ where: { eventId } });
     await tx.judgeAvailability.deleteMany({ where: { judge: { eventId } } });
     await tx.judgeExpertise.deleteMany({ where: { judge: { eventId } } });
+    await tx.slotJudge.deleteMany({ where: { timeSlot: { eventId } } });
     await tx.judge.deleteMany({ where: { eventId } });
     await tx.teamMember.deleteMany({ where: { team: { eventId } } });
     await tx.team.deleteMany({ where: { eventId } });
@@ -430,9 +348,8 @@ export class SetupUploadService {
     if (!file?.buffer?.length) throw new BadRequestException('No file received, or the file is empty.');
     const name = (file.originalname || '').toLowerCase();
     if (!name.endsWith('.xlsx')) {
-      throw new BadRequestException('Upload the setup file as .xlsx (Excel workbook).');
+      throw new BadRequestException('Upload the file as .xlsx (Excel workbook).');
     }
     return file.buffer;
   }
 }
-

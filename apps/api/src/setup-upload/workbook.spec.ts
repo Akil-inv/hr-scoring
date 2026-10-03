@@ -1,29 +1,29 @@
 import * as XLSX from 'xlsx';
-import { checkWorkbook, parseDate, parseTime, headerKey, HEAVY_DAY_SESSIONS } from './workbook';
+import { checkWorkbook, parseAvailability } from './workbook';
+import { headerKey, parseDate, parseTime } from './cells';
 
 type Sheets = Record<string, unknown[][]>;
 
-const EVENT = [['Event name *', 'Location', 'Timezone', 'Session length (minutes) *', 'Admin emails'],
-  ['Test Challenge', 'Level 12', 'Asia/Singapore', 25, 'admin@example.com']];
-const ROOMS = [['Room name *', 'Location', 'Video conferencing'], ['Room A', 'L12', 'Y'], ['Room B', 'L12', 'N']];
-const TEAMS = [
-  ['Team name *', 'Project name *', 'Track', 'Country', 'Organisation', 'Team lead name *', 'Team lead email *', 'Presentation mode'],
-  ['Alpha', 'Onboarding', 'CX', 'SG', 'UOB', 'Tan', 'tan@example.com', 'In person'],
-  ['Beta', 'Fraud', 'Risk', 'MY', 'UOB', 'Faiz', 'faiz@example.com', 'Video'],
-];
-const JUDGES = [
-  ['Name *', 'Email *', 'Phone', 'Organisation', 'Designation', 'Tier'],
-  ['Lim', 'lim@example.com', '+6591234567', 'UOB', 'MD', 'L2'],
-  ['Priya', 'priya@example.com', null, 'UOB', 'ED', 'L3'],
-];
-const SCHED_HEAD = ['Date *', 'Start time *', 'End time *', 'Room *', 'Team name *', 'Judge 1 email *', 'Judge 2 email', 'Judge 3 email'];
-const SCHEDULE = [SCHED_HEAD,
-  ['2026-10-12', '09:30', '09:55', 'Room A', 'Alpha', 'lim@example.com', 'priya@example.com'],
-  ['2026-10-13', '10:00', '10:25', 'Room A', 'Beta', 'LIM@example.com', 'priya@example.com'],
-];
+const EVENT = [['Event name *', 'Location', 'Timezone', 'Minimum panel size', 'Admin emails'],
+  ['Interviews', 'L12', 'Asia/Singapore', 2, 'admin@example.com']];
+const TEMPLATE = [['Block *', 'Start time *', 'Item *', 'Duration (minutes) *'],
+  ['AM', '09:00', 'Interview', 20],
+  ['AM', null, 'Interview', 20],
+  ['AM', null, 'Break', 10],
+  ['AM', null, 'Interview', 20],
+  ['AM', null, 'Calibration', 10],
+  ['PM', '14:00', 'Interview', 20],
+  ['PM', null, 'Interview', 20],
+  ['PM', null, 'Calibration', 10]];
+const JUDGES = [['Name *', 'Email *', 'Phone', 'Organisation', 'Designation', 'Tier'],
+  ['Dean', 'dean@example.com'], ['Lawrance', 'lawrance@example.com'], ['Choon Hin', 'choonhin@example.com']];
+const AVAIL = [['Judge email *', '2026-10-19 AM', '2026-10-19 PM', '2026-10-20 AM', '2026-10-20 PM'],
+  ['dean@example.com', 'Yes', 'Yes', 'No', null],
+  ['Lawrance@Example.com', 'yes', '14:00-14:20', 'No', null],
+  ['choonhin@example.com', 'Yes', 'No', 'No', null]];
 
 function book(overrides: Partial<Sheets> = {}, omit: string[] = []): Buffer {
-  const sheets: Sheets = { Event: EVENT, Rooms: ROOMS, Teams: TEAMS, Judges: JUDGES, Schedule: SCHEDULE, ...overrides };
+  const sheets: Sheets = { Event: EVENT, 'Day template': TEMPLATE, Judges: JUDGES, Availability: AVAIL, ...overrides };
   const wb = XLSX.utils.book_new();
   for (const [name, rows] of Object.entries(sheets)) {
     if (omit.includes(name)) continue;
@@ -32,219 +32,169 @@ function book(overrides: Partial<Sheets> = {}, omit: string[] = []): Buffer {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
-const messages = (r: ReturnType<typeof checkWorkbook>, kind: 'errors' | 'warnings') =>
+const msgs = (r: ReturnType<typeof checkWorkbook>, kind: 'errors' | 'warnings') =>
   r[kind].map((i) => `${i.sheet}${i.row ? `:${i.row}` : ''} ${i.message}`);
 
-describe('checkWorkbook', () => {
-  it('accepts a complete workbook and summarises it', () => {
+describe('checkWorkbook (interview setup)', () => {
+  it('builds slots from the template, one block per available date', () => {
     const r = checkWorkbook(book());
-    expect(messages(r, 'errors')).toEqual([]);
-    expect(r.ok).toBe(true);
-    expect(r.summary).toMatchObject({
-      eventName: 'Test Challenge', timezone: 'Asia/Singapore', rooms: 2, teams: 2, judges: 2, sessions: 2,
-      tracks: ['CX', 'Risk'], rubric: 'UOB rubric (Criteria sheet empty)',
-    });
-    expect(r.summary.days).toEqual([
-      { date: '2026-10-12', sessions: 1, judges: 2, teams: 1 },
-      { date: '2026-10-13', sessions: 1, judges: 2, teams: 1 },
+    expect(msgs(r, 'errors')).toEqual([]);
+    // 20 Oct has nobody, so only 19 Oct AM and PM are scheduled.
+    expect(r.workbook.schedule.map((b) => `${b.date} ${b.block}`)).toEqual(['2026-10-19 AM', '2026-10-19 PM']);
+    const am = r.workbook.schedule[0].slots;
+    expect(am.map((s) => `${s.kind} ${s.start}-${s.end}`)).toEqual([
+      'INTERVIEW 09:00-09:20', 'INTERVIEW 09:20-09:40', 'BREAK 09:40-09:50', 'INTERVIEW 09:50-10:10', 'CALIBRATION 10:10-10:20',
     ]);
+    expect(am[0].startUtc.toISOString()).toBe('2026-10-19T01:00:00.000Z');
+    expect(am[0].panel).toEqual(['dean@example.com', 'lawrance@example.com', 'choonhin@example.com']);
+    expect(am[2].panel).toEqual([]);
   });
 
-  it('stores session times as UTC instants of the event-local wall clock', () => {
-    const s = checkWorkbook(book()).workbook.sessions[0];
-    // 09:30 in Singapore (UTC+8) is 01:30 UTC.
-    expect(s.startUtc.toISOString()).toBe('2026-10-12T01:30:00.000Z');
-    expect(s.endUtc.toISOString()).toBe('2026-10-12T01:55:00.000Z');
+  it('seats a judge only in interviews that fit inside their window', () => {
+    const pm = checkWorkbook(book()).workbook.schedule[1].slots;
+    // Lawrance 14:00-14:20 covers the first interview only. With Dean that's 2 = the minimum.
+    expect(pm[0].panel).toEqual(['dean@example.com', 'lawrance@example.com']);
+    // The second interview has Dean alone: below the minimum of 2, so no panel.
+    expect(pm[1].available).toEqual(['dean@example.com']);
+    expect(pm[1].panel).toEqual([]);
   });
 
-  it('matches judge emails regardless of case', () => {
+  it('warns about interviews left without a panel and summarises the schedule', () => {
     const r = checkWorkbook(book());
-    expect(r.workbook.sessions[1].judgeEmails).toEqual(['lim@example.com', 'priya@example.com']);
+    expect(msgs(r, 'warnings')).toContain('Availability 2026-10-19 PM: 1 of 2 interviews have fewer than 2 judges available, so they have no panel.');
+    expect(r.summary).toMatchObject({ judges: 3, days: 1, interviews: 5, interviewsWithPanel: 4, minPanel: 2 });
+    expect(r.summary.blocks).toEqual([
+      { block: 'AM', start: '09:00', end: '10:20', interviews: 3 },
+      { block: 'PM', start: '14:00', end: '14:50', interviews: 2 },
+    ]);
+    expect(r.summary.schedule[0].blocks[1]).toEqual({ block: 'PM', interviews: 2, withPanel: 1, judges: ['Dean', 'Lawrance'] });
   });
 
-  it('reads real Excel date and time cells', () => {
-    const wb = XLSX.utils.book_new();
-    const sheets: Sheets = { Event: EVENT, Rooms: ROOMS, Teams: TEAMS, Judges: JUDGES };
-    for (const [n, rows] of Object.entries(sheets)) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows as any[][]), n);
-    // 46307 = 2026-10-12; 0.395833 = 09:30; 0.413194 = 09:55
-    const sched = XLSX.utils.aoa_to_sheet([SCHED_HEAD,
-      [46307, 9.5 / 24, (9 + 55 / 60) / 24, 'Room A', 'Alpha', 'lim@example.com'],
-      [46308, 10 / 24, (10 + 25 / 60) / 24, 'Room B', 'Beta', 'priya@example.com']]);
-    XLSX.utils.book_append_sheet(wb, sched, 'Schedule');
-    const r = checkWorkbook(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
-    expect(messages(r, 'errors')).toEqual([]);
-    expect(r.workbook.sessions.map((s) => [s.date, s.start, s.end])).toEqual([
-      ['2026-10-12', '09:30', '09:55'],
-      ['2026-10-13', '10:00', '10:25'],
+  it('honours a minimum panel size of 1', () => {
+    const r = checkWorkbook(book({ Event: [EVENT[0], ['Interviews', null, null, 1, null]] }));
+    expect(r.workbook.schedule[1].slots[1].panel).toEqual(['dean@example.com']);
+  });
+
+  it('refuses anything in the grid that is not Yes, No or a window, naming judge and column', () => {
+    const r = checkWorkbook(book({ Availability: [AVAIL[0], ['dean@example.com', 'No. 1.3 PM ok', '1-4pm', 'Yes', 'maybe']] }));
+    expect(msgs(r, 'errors')).toEqual([
+      'Availability:2 Dean, 2026-10-19 AM: "No. 1.3 PM ok" isn\'t Yes, No or a time window like 13:00-16:00.',
+      'Availability:2 Dean, 2026-10-19 PM: "1-4pm" isn\'t Yes, No or a time window like 13:00-16:00.',
+      'Availability:2 Dean, 2026-10-20 PM: "maybe" isn\'t Yes, No or a time window like 13:00-16:00.',
     ]);
   });
 
-  it('reports a missing sheet by name', () => {
-    const r = checkWorkbook(book({}, ['Judges']));
-    expect(r.ok).toBe(false);
-    expect(messages(r, 'errors').join('\n')).toContain('The "Judges" sheet is missing');
-  });
-
-  it('rejects a file that is not a workbook', () => {
-    const r = checkWorkbook(Buffer.from('not,a,workbook'));
-    // SheetJS reads CSV text as a one-sheet book, so this surfaces as missing sheets.
-    expect(r.ok).toBe(false);
-  });
-
-  it('flags unknown teams, judges and rooms on the schedule with their row', () => {
-    const r = checkWorkbook(book({ Schedule: [SCHED_HEAD,
-      ['2026-10-12', '09:30', '09:55', 'Room Z', 'Gamma', 'nobody@example.com']] }));
-    const errs = messages(r, 'errors');
-    expect(errs).toContain('Schedule:2 Room "Room Z" is not on the Rooms sheet.');
-    expect(errs).toContain('Schedule:2 Team "Gamma" is not on the Teams sheet.');
-    expect(errs).toContain('Schedule:2 Judge 1 (nobody@example.com) is not on the Judges sheet.');
-  });
-
-  it('refuses a team scheduled twice', () => {
-    const r = checkWorkbook(book({ Schedule: [SCHED_HEAD,
-      ['2026-10-12', '09:30', '09:55', 'Room A', 'Alpha', 'lim@example.com'],
-      ['2026-10-13', '09:30', '09:55', 'Room A', 'Alpha', 'priya@example.com'],
-      ['2026-10-13', '11:00', '11:25', 'Room A', 'Beta', 'priya@example.com']] }));
-    expect(messages(r, 'errors')).toEqual([
-      'Schedule:3 Team "Alpha" is already scheduled on row 2. Each team is judged once.',
+  it('checks the grid headers and judges', () => {
+    const r = checkWorkbook(book({ Availability: [
+      ['Judge email *', '19/10/2026 AM', '2026-10-19 Evening', '2026-10-19 AM', '2026-10-19 am'],
+      ['nobody@example.com', 'Yes'],
+      ['dean@example.com', 'Yes', 'Yes', 'Yes'],
+      ['dean@example.com', 'Yes'],
+    ] }));
+    expect(msgs(r, 'errors')).toEqual([
+      'Availability:1 Column header "19/10/2026 AM" should be a date and block, e.g. 2026-10-19 AM.',
+      'Availability:1 Column "2026-10-19 Evening": block "Evening" is not on the Day template sheet.',
+      'Availability:1 Column "2026-10-19 am" repeats "2026-10-19 AM".',
+      'Availability:2 nobody@example.com is not on the Judges sheet.',
+      'Availability:4 dean@example.com has two rows (also row 3).',
     ]);
+    expect(msgs(r, 'warnings')).toContain('Judges:3 Lawrance has no row on the Availability sheet, so won\'t sit any interviews.');
   });
 
-  it('catches a judge booked in two rooms at once', () => {
-    const r = checkWorkbook(book({ Schedule: [SCHED_HEAD,
-      ['2026-10-12', '09:30', '09:55', 'Room A', 'Alpha', 'lim@example.com'],
-      ['2026-10-12', '09:45', '10:10', 'Room B', 'Beta', 'lim@example.com']] }));
-    expect(messages(r, 'errors')).toEqual([
-      'Schedule:3 Lim (lim@example.com) is booked at 2026-10-12 09:45–10:10, overlapping row 2 (09:30–09:55).',
-    ]);
+  it('warns when a window covers no whole interview', () => {
+    const r = checkWorkbook(book({ Availability: [AVAIL[0], ...AVAIL.slice(1, 3), ['choonhin@example.com', 'Yes', '14:05-14:30']] }));
+    expect(msgs(r, 'warnings')).toContain(
+      'Availability:4 Choon Hin\'s window 14:05-14:30 on 2026-10-19 PM doesn\'t cover a whole interview, so they won\'t sit any.');
   });
 
-  it('catches a room double-booked, but allows back-to-back sessions', () => {
-    const clash = checkWorkbook(book({ Schedule: [SCHED_HEAD,
-      ['2026-10-12', '09:30', '09:55', 'Room A', 'Alpha', 'lim@example.com'],
-      ['2026-10-12', '09:50', '10:15', 'Room A', 'Beta', 'priya@example.com']] }));
-    expect(messages(clash, 'errors')[0]).toContain('Room "Room A" is booked at 2026-10-12 09:50–10:15');
-
-    const backToBack = checkWorkbook(book({ Schedule: [SCHED_HEAD,
-      ['2026-10-12', '09:30', '09:55', 'Room A', 'Alpha', 'lim@example.com'],
-      ['2026-10-12', '09:55', '10:20', 'Room A', 'Beta', 'lim@example.com']] }));
-    expect(messages(backToBack, 'errors')).toEqual([]);
-  });
-
-  it('refuses ambiguous dates and unreadable times', () => {
-    const r = checkWorkbook(book({ Schedule: [SCHED_HEAD,
-      ['12/10/2026', '9.30am', '25:00', 'Room A', 'Alpha', 'lim@example.com']] }));
-    const errs = messages(r, 'errors');
-    expect(errs).toContain('Schedule:2 Date "12/10/2026" can\'t be read. Use YYYY-MM-DD, e.g. 2026-10-12.');
-    expect(errs).toContain('Schedule:2 End time "25:00" can\'t be read. Use 24-hour HH:MM, e.g. 09:55.');
-  });
-
-  it('refuses an end time that is not after the start', () => {
-    const r = checkWorkbook(book({ Schedule: [SCHED_HEAD,
-      ['2026-10-12', '10:00', '09:30', 'Room A', 'Alpha', 'lim@example.com']] }));
-    expect(messages(r, 'errors')).toContain('Schedule:2 End time 09:30 is not after start time 10:00.');
-  });
-
-  it('refuses duplicate team names and judge emails', () => {
-    const r = checkWorkbook(book({
-      Teams: [...TEAMS, ['alpha', 'Other', 'CX', 'SG', 'UOB', 'X', 'x@example.com', '']],
-      Judges: [...JUDGES, ['Lim Again', 'Lim@Example.com']],
-    }));
-    const errs = messages(r, 'errors');
-    expect(errs).toContain('Teams:4 Team "alpha" is listed twice (also row 2).');
-    expect(errs).toContain('Judges:4 lim@example.com is listed twice (also row 2).');
-  });
-
-  it('checks the Event sheet', () => {
-    const r = checkWorkbook(book({ Event: [EVENT[0], ['', '', 'Mars/Olympus', 'twenty', 'not-an-email']] }));
-    const errs = messages(r, 'errors');
-    expect(errs).toContain('Event:2 Event name is empty.');
-    expect(errs).toContain('Event:2 "Mars/Olympus" is not a timezone this system recognises. Use a name like Asia/Singapore.');
-    expect(errs).toContain('Event:2 Session length must be a whole number of minutes, up to 240.');
-    expect(errs).toContain('Event:2 "not-an-email" in Admin emails is not an email address.');
-  });
-
-  it('warns about thin panels, video rooms, and anything left unused', () => {
-    const r = checkWorkbook(book({
-      Teams: [...TEAMS, ['Gamma', 'Spare', 'CX', 'SG', 'UOB', 'G', 'g@example.com', '']],
-      Judges: [...JUDGES, ['Idle', 'idle@example.com']],
-      Schedule: [SCHED_HEAD,
-        ['2026-10-12', '09:30', '09:55', 'Room A', 'Alpha', 'lim@example.com'],
-        ['2026-10-12', '10:00', '10:25', 'Room B', 'Beta', 'priya@example.com', 'lim@example.com']],
-    }));
-    expect(messages(r, 'errors')).toEqual([]);
-    expect(messages(r, 'warnings')).toEqual(expect.arrayContaining([
-      'Schedule:2 Alpha has only one judge.',
-      'Schedule:3 Beta presents by video, but Room B has no video conferencing.',
-      'Teams:4 Gamma is not on the Schedule, so it will not be judged.',
-      'Judges:4 Idle is not on any session.',
+  it('checks the day template', () => {
+    const r = checkWorkbook(book({ 'Day template': [TEMPLATE[0],
+      ['AM', null, 'Interview', 20],
+      ['AM', '09:00', 'Interview', 20],
+      ['AM', '09:10', 'Interview', 20],
+      ['AM', null, 'Lunch hour', 20],
+      ['PM', '10:00', 'Break', 10],
+      ['AM', null, 'Interview', 'twenty']] }));
+    expect(msgs(r, 'errors')).toEqual(expect.arrayContaining([
+      'Day template:2 The first row of block AM needs a start time.',
+      'Day template:4 Start time 09:10 overlaps the previous item in AM, which ends at 09:20.',
+      'Day template:5 Item must be Interview, Break or Calibration.',
+      'Day template:6 Block PM has no interviews.',
+      'Day template:7 Duration must be a whole number of minutes, up to 240.',
     ]));
   });
 
-  it(`warns when a judge has more than ${HEAVY_DAY_SESSIONS} sessions in a day`, () => {
-    const teams = [TEAMS[0]];
-    const sched: unknown[][] = [SCHED_HEAD];
-    for (let i = 0; i <= HEAVY_DAY_SESSIONS; i++) {
-      teams.push([`T${i}`, 'P', 'CX', 'SG', 'UOB', 'L', `t${i}@example.com`, '']);
-      const h = String(9 + i).padStart(2, '0');
-      sched.push(['2026-10-12', `${h}:00`, `${h}:25`, 'Room A', `T${i}`, 'lim@example.com']);
-    }
-    const r = checkWorkbook(book({ Teams: teams, Schedule: sched }));
-    expect(messages(r, 'errors')).toEqual([]);
-    expect(messages(r, 'warnings')).toContain(`Schedule Lim has ${HEAVY_DAY_SESSIONS + 1} sessions on 2026-10-12.`);
+  it('refuses blocks that overlap, since one panel cannot be in both', () => {
+    const r = checkWorkbook(book({ 'Day template': [TEMPLATE[0], ['AM', '09:00', 'Interview', 60], ['PM', '09:30', 'Interview', 20]] }));
+    expect(msgs(r, 'errors')).toContain('Day template:3 Block PM starts at 09:30, before block AM ends at 10:00. One panel can\'t be in both.');
+  });
+
+  it('allows a gap by giving a later row its own start time', () => {
+    const r = checkWorkbook(book({
+      'Day template': [TEMPLATE[0], ['AM', '09:00', 'Interview', 20], ['AM', '10:00', 'Interview', 20]],
+      Availability: [['Judge email *', '2026-10-19 AM'], ['dean@example.com', 'Yes'], ['lawrance@example.com', 'Yes'], ['choonhin@example.com', 'Yes']],
+    }));
+    expect(msgs(r, 'errors')).toEqual([]);
+    expect(r.workbook.schedule[0].slots.map((s) => s.start)).toEqual(['09:00', '10:00']);
+  });
+
+  it('reports missing sheets and an unreadable file', () => {
+    expect(msgs(checkWorkbook(book({}, ['Availability'])), 'errors')).toContain(
+      'Availability The "Availability" sheet is missing. Start from the template so every sheet is there.');
+    expect(checkWorkbook(Buffer.from('nope')).ok).toBe(false);
+  });
+
+  it('refuses a schedule nobody can sit', () => {
+    const r = checkWorkbook(book({ Availability: [AVAIL[0], ['dean@example.com', 'No', 'No', 'No', 'No']] }));
+    expect(msgs(r, 'errors')).toContain('Availability No judge is available for any block, so there is nothing to schedule.');
   });
 
   describe('Criteria sheet', () => {
     const HEAD = ['Criterion *', 'Parent criterion', 'Max score *', 'Guidance', 'Comment required'];
-
-    it('accepts a rubric whose categories total 100 and whose rows fill each category', () => {
-      const r = checkWorkbook(book({ Criteria: [HEAD,
-        ['Impact', null, 60], ['Value', 'Impact', 40], ['Reach', 'Impact', 20],
-        ['Feasibility', null, 40], ['Build', 'Feasibility', 40, 'Can it ship?', 'Y']] }));
-      expect(messages(r, 'errors')).toEqual([]);
-      expect(r.summary.rubric).toBe('2 categories, 3 rows');
-      expect(r.workbook.criteria.find((c) => c.name === 'Build')).toMatchObject({ requiresComment: true, guidance: 'Can it ship?' });
+    it('accepts a rubric that adds up', () => {
+      const r = checkWorkbook(book({ Criteria: [HEAD, ['Impact', null, 60], ['Value', 'Impact', 60], ['Fit', null, 40], ['Team', 'Fit', 40, 'Works well', 'Y']] }));
+      expect(msgs(r, 'errors')).toEqual([]);
+      expect(r.summary.rubric).toBe('2 categories, 2 rows');
     });
-
-    it('explains a rubric that does not add up', () => {
-      const r = checkWorkbook(book({ Criteria: [HEAD,
-        ['Impact', null, 50], ['Value', 'Impact', 30],
-        ['Feasibility', null, 30],
-        ['Deep', 'Value', 5]] }));
-      const errs = messages(r, 'errors');
-      expect(errs).toContain('Criteria Categories add up to 80. They must add up to 100.');
-      expect(errs).toContain('Criteria:2 "Impact" allows 50 points but its rows add up to 30.');
-      expect(errs).toContain('Criteria:4 "Feasibility" has no rows under it. Every category needs at least one row to score.');
-      expect(errs).toContain('Criteria:5 "Value" is itself inside another category. Criteria go two levels deep at most.');
+    it('explains a rubric that does not', () => {
+      const r = checkWorkbook(book({ Criteria: [HEAD, ['Impact', null, 50], ['Value', 'Impact', 30]] }));
+      expect(msgs(r, 'errors')).toEqual([
+        'Criteria Categories add up to 50. They must add up to 100.',
+        'Criteria:2 "Impact" allows 50 points but its rows add up to 30.',
+      ]);
     });
   });
 });
 
 describe('cell parsing', () => {
-  it('reads dates without guessing day/month order', () => {
-    expect(parseDate('2026-10-12')).toBe('2026-10-12');
-    expect(parseDate('2026-1-5')).toBe('2026-01-05');
-    expect(parseDate('12-Oct-2026')).toBe('2026-10-12');
-    expect(parseDate('12 October 2026')).toBe('2026-10-12');
-    expect(parseDate(46307)).toBe('2026-10-12');
-    expect(parseDate('12/10/2026')).toBeNull();
-    expect(parseDate('2026-02-30')).toBeNull();
+  it('reads availability cells strictly', () => {
+    expect(parseAvailability('Yes')).toEqual({ kind: 'ALL' });
+    expect(parseAvailability('ok')).toEqual({ kind: 'ALL' });
+    expect(parseAvailability('No')).toBeNull();
+    expect(parseAvailability(null)).toBeNull();
+    expect(parseAvailability('13:00-16:00')).toEqual({ kind: 'WINDOW', from: 780, to: 960 });
+    expect(parseAvailability('9:00 – 10:30')).toEqual({ kind: 'WINDOW', from: 540, to: 630 });
+    expect(parseAvailability('16:00-13:00')).toBe('invalid');
+    expect(parseAvailability('1-3 PM')).toBe('invalid');
+    expect(parseAvailability('No. 1.3 PM ok')).toBe('invalid');
   });
 
-  it('reads 24-hour, 12-hour and Excel fraction times', () => {
-    expect(parseTime('09:30')).toBe('09:30');
-    expect(parseTime('9:30')).toBe('09:30');
-    expect(parseTime('09:30:00')).toBe('09:30');
+  it('reads dates without guessing day/month order', () => {
+    expect(parseDate('2026-10-19')).toBe('2026-10-19');
+    expect(parseDate('19-Oct-2026')).toBe('2026-10-19');
+    expect(parseDate(46314)).toBe('2026-10-19');
+    expect(parseDate('19/10/2026')).toBeNull();
+  });
+
+  it('reads times', () => {
+    expect(parseTime('09:00')).toBe('09:00');
     expect(parseTime('2:15 PM')).toBe('14:15');
-    expect(parseTime('12:00 AM')).toBe('00:00');
-    expect(parseTime(0.5)).toBe('12:00');
-    expect(parseTime('24:00')).toBeNull();
-    expect(parseTime('9am')).toBeNull();
+    expect(parseTime(14 / 24)).toBe('14:00');
+    expect(parseTime('25:00')).toBeNull();
   });
 
   it('normalises headers', () => {
-    expect(headerKey('Session length (minutes) *')).toBe('session_length');
-    expect(headerKey('Judge 1 email *')).toBe('judge_1_email');
-    expect(headerKey('  Team Lead Email ')).toBe('team_lead_email');
+    expect(headerKey('Duration (minutes) *')).toBe('duration');
+    expect(headerKey('Minimum panel size')).toBe('minimum_panel_size');
   });
 });

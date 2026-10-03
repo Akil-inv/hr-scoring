@@ -22,6 +22,8 @@ export class EventEntity {
   @Field(() => Int) minJudgesPerTeam!: number;
   @Field(() => Int) maxJudgesPerTeam!: number;
   @Field(() => EventStatus) status!: EventStatus;
+  /** WIZARD or UPLOAD. Upload events have the interview schedule instead of the wizard flow. */
+  @Field() setupMode!: string;
   @Field() createdAt!: Date;
   @Field() updatedAt!: Date;
 }

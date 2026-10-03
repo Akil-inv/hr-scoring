@@ -223,6 +223,9 @@ type EventEntity {
   sessionDurationMinutes: Int!
   startDate: DateTime!
   status: EventStatus!
+
+  """WIZARD or UPLOAD. Upload events have the interview schedule instead of the wizard flow."""
+  setupMode: String!
   timezone: String!
   transitionBufferMinutes: Int!
   updatedAt: DateTime!

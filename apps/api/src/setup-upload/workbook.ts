@@ -1,47 +1,40 @@
 import * as XLSX from 'xlsx';
 import { zonedTimeToUtc } from '../common/event-time';
+import {
+  EMAIL, Issue, RawRow, findSheet, hhmmOf, inFileOrder, isBlank, minutesOf, parseDate, parseTime,
+  pick, positiveNumber, readGrid, readSheet, readWorkbook, text, validTimezone, yes,
+} from './cells';
+
+export type { Issue } from './cells';
 
 /**
- * Reads and checks the event setup workbook.
+ * Reads and checks the interview setup workbook, and works out the schedule
+ * it describes.
  *
- * One workbook describes a whole event: rooms, teams, judges, the scoring
- * rubric and the finished schedule. This file turns it into plain data and
- * lists every problem by sheet and row. It never touches the database, so the
- * same checks run for the preview and again, unchanged, just before the
- * import commits.
+ * The workbook gives a day template (blocks of interviews, breaks and
+ * calibration with their lengths), the judges, and each judge's availability
+ * per date and block. From those this builds every day's slots and seats each
+ * judge in the interviews they are available for. One panel interviews at a
+ * time. Candidates are not part of this workbook; they are placed later.
  *
- * Problems come in two kinds. An error means the event cannot be built as
- * described (a session names a judge who is not on the Judges sheet). A
- * warning means it can, but someone should look (a session with one judge).
+ * Nothing here touches the database: the same function serves the preview and
+ * the import, so what the admin confirms is exactly what gets built.
  */
 
 // ─── Types ─────────────────────────────────────────────────────────────────
-
-export type Issue = { sheet: string; row: number | null; message: string };
 
 export type EventInfo = {
   name: string;
   location: string | null;
   timezone: string;
-  sessionMinutes: number;
+  minPanel: number;
   adminEmails: string[];
 };
 
-export type RoomRow = { row: number; name: string; location: string | null; hasVideo: boolean };
+export type ItemKind = 'INTERVIEW' | 'BREAK' | 'CALIBRATION';
 
-export type TeamRow = {
-  row: number;
-  name: string;
-  projectName: string;
-  track: string | null;
-  country: string | null;
-  organisation: string | null;
-  leadName: string;
-  leadEmail: string;
-  mode: 'IN_PERSON' | 'VIRTUAL';
-  problemStatement: string | null;
-  solutionSummary: string | null;
-};
+/** One row of the day template, with its times worked out. */
+export type TemplateItem = { row: number; block: string; kind: ItemKind; start: number; end: number };
 
 export const TIERS = ['L1', 'L2', 'L3', 'L4', 'PS', 'V'] as const;
 export type Tier = (typeof TIERS)[number];
@@ -56,19 +49,24 @@ export type JudgeRow = {
   tier: Tier | null;
 };
 
-export type SessionRow = {
-  row: number;
-  /** Local calendar date in the event's timezone, YYYY-MM-DD. */
-  date: string;
-  /** Local wall-clock times, HH:MM. */
+/** A judge's answer for one date and block: the whole block, or a window in minutes. */
+export type Availability = { kind: 'ALL' } | { kind: 'WINDOW'; from: number; to: number };
+
+export type PlannedSlot = {
+  kind: ItemKind;
+  /** Position in the block, from 1. */
+  sequence: number;
   start: string;
   end: string;
   startUtc: Date;
   endUtc: Date;
-  room: string;
-  team: string;
-  judgeEmails: string[];
+  /** Judges available for the whole slot. */
+  available: string[];
+  /** The panel: the available judges, or nobody when fewer than the minimum. Interviews only. */
+  panel: string[];
 };
+
+export type PlannedBlock = { date: string; block: string; slots: PlannedSlot[] };
 
 export type CriterionRow = {
   row: number;
@@ -81,14 +79,16 @@ export type CriterionRow = {
 
 export type ParsedWorkbook = {
   event: EventInfo | null;
-  rooms: RoomRow[];
-  teams: TeamRow[];
+  template: TemplateItem[];
   judges: JudgeRow[];
-  sessions: SessionRow[];
+  schedule: PlannedBlock[];
   criteria: CriterionRow[];
 };
 
-export type DaySummary = { date: string; sessions: number; judges: number; teams: number };
+export type DaySummary = {
+  date: string;
+  blocks: { block: string; interviews: number; withPanel: number; judges: string[] }[];
+};
 
 export type CheckResult = {
   ok: boolean;
@@ -97,183 +97,57 @@ export type CheckResult = {
   summary: {
     eventName: string | null;
     timezone: string | null;
-    rooms: number;
-    tracks: string[];
-    teams: number;
+    minPanel: number | null;
     judges: number;
-    sessions: number;
-    days: DaySummary[];
+    days: number;
+    interviews: number;
+    interviewsWithPanel: number;
+    blocks: { block: string; start: string; end: string; interviews: number }[];
+    schedule: DaySummary[];
     rubric: string;
   };
   workbook: ParsedWorkbook;
 };
 
-/** More sessions than this for one judge on one day draws a warning. */
-export const HEAVY_DAY_SESSIONS = 8;
-
 /** The rubric total every category must add up to (matches the scoring template). */
 export const RUBRIC_TOTAL = 100;
 
-const MAX_JUDGES_PER_SESSION = 5;
+const SHEET_ORDER = ['File', 'Event', 'Day template', 'Judges', 'Availability', 'Criteria'];
 
-// ─── Cell helpers ──────────────────────────────────────────────────────────
+// ─── Availability cells ────────────────────────────────────────────────────
 
-/**
- * Header text to a stable key: lowercase, no asterisks, punctuation or extra
- * spaces. "Session length (minutes) *" and "session length minutes" both
- * become "session_length_minutes".
- */
-export function headerKey(header: unknown): string {
-  return String(header ?? '')
-    .toLowerCase()
-    .replace(/\*/g, '')
-    .replace(/\(.*?\)/g, ' ')
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-}
-
-type RawRow = { row: number; cells: Record<string, unknown> };
+const YES = ['yes', 'y', 'ok', 'available', '✓', '✔', 'true'];
+const NO = ['no', 'n', 'x', '-', 'na', 'n/a', 'not available', 'false'];
 
 /**
- * A sheet as rows of {header key → raw cell value}, with the spreadsheet row
- * number kept so every message can point at the exact line. Rows with nothing
- * in them are skipped.
+ * One availability cell. The agreed format is Yes, No (or blank), or a 24-hour
+ * window HH:MM-HH:MM. Anything else is refused rather than guessed at: a wrong
+ * guess either loses a judge or seats one who isn't there.
  */
-function readSheet(wb: XLSX.WorkBook, name: string): RawRow[] | null {
-  const actual = wb.SheetNames.find((n) => n.trim().toLowerCase() === name.toLowerCase());
-  if (!actual) return null;
-  const sheet = wb.Sheets[actual];
-  const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null, blankrows: true });
-  if (grid.length === 0) return [];
-  const headers = (grid[0] ?? []).map(headerKey);
-  const rows: RawRow[] = [];
-  for (let i = 1; i < grid.length; i++) {
-    const line = grid[i] ?? [];
-    const cells: Record<string, unknown> = {};
-    let any = false;
-    headers.forEach((h, j) => {
-      if (!h) return;
-      const v = line[j];
-      if (v !== null && v !== undefined && String(v).trim() !== '') any = true;
-      cells[h] = v;
-    });
-    if (any) rows.push({ row: i + 1, cells });
-  }
-  return rows;
+export function parseAvailability(v: unknown): Availability | null | 'invalid' {
+  if (isBlank(v)) return null;
+  if (typeof v === 'boolean') return v ? { kind: 'ALL' } : null;
+  const s = String(v).trim().toLowerCase();
+  if (YES.includes(s)) return { kind: 'ALL' };
+  if (NO.includes(s)) return null;
+  const m = s.match(/^(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})$/);
+  if (!m) return 'invalid';
+  const from = parseTime(m[1]);
+  const to = parseTime(m[2]);
+  if (!from || !to || minutesOf(to) <= minutesOf(from)) return 'invalid';
+  return { kind: 'WINDOW', from: minutesOf(from), to: minutesOf(to) };
 }
 
-function text(v: unknown): string | null {
-  if (v === null || v === undefined) return null;
-  const s = String(v).trim();
-  return s === '' ? null : s;
+function covers(a: Availability, start: number, end: number): boolean {
+  return a.kind === 'ALL' || (a.from <= start && end <= a.to);
 }
 
-/** First non-empty value among several header spellings. */
-function pick(cells: Record<string, unknown>, ...keys: string[]): unknown {
-  for (const k of keys) {
-    const v = cells[k];
-    if (v !== null && v !== undefined && String(v).trim() !== '') return v;
-  }
-  return null;
-}
-
-function yes(v: unknown): boolean {
+function normaliseKind(v: unknown): ItemKind | null {
   const s = String(v ?? '').trim().toLowerCase();
-  return ['y', 'yes', 'true', '1'].includes(s);
-}
-
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-
-function pad(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-function validDate(y: number, m: number, d: number): boolean {
-  if (y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1) return false;
-  return d <= new Date(Date.UTC(y, m, 0)).getUTCDate();
-}
-
-/**
- * A date cell as YYYY-MM-DD, or null if it can't be read without guessing.
- *
- * Excel stores dates as serial numbers, which are unambiguous. Typed text is
- * accepted as 2026-10-12 or 12-Oct-2026 / 12 Oct 2026. 12/10/2026 is refused
- * on purpose: it is 12 October in Singapore and 10 December in the US, and a
- * schedule built on the wrong reading puts every session on the wrong day.
- */
-export function parseDate(v: unknown): string | null {
-  if (v === null || v === undefined || v === '') return null;
-  if (v instanceof Date && !isNaN(v.getTime())) {
-    return `${v.getUTCFullYear()}-${pad(v.getUTCMonth() + 1)}-${pad(v.getUTCDate())}`;
-  }
-  if (typeof v === 'number') {
-    const p = XLSX.SSF.parse_date_code(v);
-    if (!p || !validDate(p.y, p.m, p.d)) return null;
-    return `${p.y}-${pad(p.m)}-${pad(p.d)}`;
-  }
-  const s = String(v).trim();
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (m) {
-    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-    return validDate(y, mo, d) ? `${y}-${pad(mo)}-${pad(d)}` : null;
-  }
-  m = s.match(/^(\d{1,2})[\s-]([A-Za-z]{3})[A-Za-z]*[\s-](\d{4})$/);
-  if (m) {
-    const mo = MONTHS.indexOf(m[2].toLowerCase()) + 1;
-    const [y, d] = [Number(m[3]), Number(m[1])];
-    return mo > 0 && validDate(y, mo, d) ? `${y}-${pad(mo)}-${pad(d)}` : null;
-  }
+  if (['interview', 'interviews', 'candidate', 'slot'].includes(s)) return 'INTERVIEW';
+  if (s === 'break' || s === 'tea break' || s === 'lunch') return 'BREAK';
+  if (s === 'calibration' || s === 'caliberation') return 'CALIBRATION';
   return null;
-}
-
-/**
- * A time cell as HH:MM (24-hour), or null.
- *
- * Excel stores times as a fraction of a day. Typed text is accepted as 09:30,
- * 9:30, 09:30:00, or with AM/PM.
- */
-export function parseTime(v: unknown): string | null {
-  if (v === null || v === undefined || v === '') return null;
-  if (v instanceof Date && !isNaN(v.getTime())) {
-    return `${pad(v.getUTCHours())}:${pad(v.getUTCMinutes())}`;
-  }
-  if (typeof v === 'number') {
-    const frac = v - Math.floor(v);
-    if (v >= 1 && frac === 0) return null; // a date with no time
-    const minutes = Math.round(frac * 24 * 60);
-    if (minutes >= 24 * 60) return null;
-    return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
-  }
-  const m = String(v).trim().match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?\s*([AaPp][Mm])?$/);
-  if (!m) return null;
-  let h = Number(m[1]);
-  const min = Number(m[2]);
-  const ampm = m[3]?.toLowerCase();
-  if (min > 59) return null;
-  if (ampm) {
-    if (h < 1 || h > 12) return null;
-    if (ampm === 'pm' && h !== 12) h += 12;
-    if (ampm === 'am' && h === 12) h = 0;
-  }
-  if (h > 23) return null;
-  return `${pad(h)}:${pad(min)}`;
-}
-
-export function validTimezone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-GB', { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function positiveNumber(v: unknown): number | null {
-  if (v === null || v === undefined || String(v).trim() === '') return null;
-  const n = Number(String(v).trim());
-  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function normaliseTier(v: unknown): Tier | null | 'invalid' {
@@ -282,174 +156,203 @@ function normaliseTier(v: unknown): Tier | null | 'invalid' {
   return (TIERS as readonly string[]).includes(s) ? (s as Tier) : 'invalid';
 }
 
-function normaliseMode(v: unknown): 'IN_PERSON' | 'VIRTUAL' | 'invalid' {
-  const s = (text(v) ?? '').toLowerCase().replace(/[^a-z]/g, '');
-  if (s === '' || s === 'inperson' || s === 'onsite' || s === 'physical') return 'IN_PERSON';
-  if (s === 'video' || s === 'virtual' || s === 'online' || s === 'remote') return 'VIRTUAL';
-  return 'invalid';
-}
-
 // ─── Reading and checking ──────────────────────────────────────────────────
 
 /**
- * Parse and check a workbook buffer. Never throws for bad content: everything
- * wrong with the file comes back as an error in the result, so the person
- * uploading sees all of it at once rather than one problem per attempt.
+ * Parse and check a setup workbook. Never throws for bad content: everything
+ * wrong comes back as an error, so the person uploading sees all of it at once.
  */
 export function checkWorkbook(buffer: Buffer): CheckResult {
   const errors: Issue[] = [];
   const warnings: Issue[] = [];
   const err = (sheet: string, row: number | null, message: string) => errors.push({ sheet, row, message });
   const warn = (sheet: string, row: number | null, message: string) => warnings.push({ sheet, row, message });
+  const empty: ParsedWorkbook = { event: null, template: [], judges: [], schedule: [], criteria: [] };
 
-  const empty: ParsedWorkbook = { event: null, rooms: [], teams: [], judges: [], sessions: [], criteria: [] };
-
-  let wb: XLSX.WorkBook;
-  try {
-    wb = XLSX.read(buffer, { type: 'buffer', cellDates: false });
-  } catch {
+  const wb = readWorkbook(buffer);
+  if (!wb) {
     err('File', null, 'This file could not be read as an Excel workbook. Save it as .xlsx and try again.');
     return finish(empty, errors, warnings);
   }
-
   const sheet = (name: string, required: boolean): RawRow[] => {
     const rows = readSheet(wb, name);
     if (rows === null) {
       if (required) err(name, null, `The "${name}" sheet is missing. Start from the template so every sheet is there.`);
       return [];
     }
+    if (rows.length === 0 && required && name !== 'Event') err(name, null, `The ${name} sheet is empty.`);
     return rows;
   };
 
-  // ── Event ──
-  const eventRows = sheet('Event', true);
-  let event: EventInfo | null = null;
-  if (eventRows.length === 0 && wb.SheetNames.some((n) => n.trim().toLowerCase() === 'event')) {
-    err('Event', 2, 'The Event sheet has no event details. Fill in row 2.');
-  } else if (eventRows.length > 1) {
-    err('Event', eventRows[1].row, 'The Event sheet should have one row. Delete the extra rows.');
-  }
-  if (eventRows.length >= 1) {
-    const r = eventRows[0];
-    const c = r.cells;
-    const name = text(pick(c, 'event_name', 'name'));
-    const tz = text(pick(c, 'timezone', 'time_zone')) ?? 'Asia/Singapore';
-    const minutesRaw = pick(c, 'session_length', 'session_length_minutes', 'session_minutes');
-    const minutes = positiveNumber(minutesRaw);
-    const admins = (text(pick(c, 'admin_emails', 'admins', 'admin_email')) ?? '')
-      .split(/[,;\s]+/)
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-
-    if (!name) err('Event', r.row, 'Event name is empty.');
-    if (!validTimezone(tz)) err('Event', r.row, `"${tz}" is not a timezone this system recognises. Use a name like Asia/Singapore.`);
-    if (minutesRaw === null) err('Event', r.row, 'Session length (minutes) is empty.');
-    else if (minutes === null || !Number.isInteger(minutes) || minutes > 240) {
-      err('Event', r.row, 'Session length must be a whole number of minutes, up to 240.');
-    }
-    for (const a of admins) {
-      if (!EMAIL.test(a)) err('Event', r.row, `"${a}" in Admin emails is not an email address.`);
-    }
-    event = {
-      name: name ?? '',
-      location: text(pick(c, 'location', 'venue')),
-      timezone: tz,
-      sessionMinutes: minutes ?? 0,
-      adminEmails: [...new Set(admins)],
-    };
-  }
+  const event = readEvent(sheet('Event', true), wb, err);
   const timezone = event && validTimezone(event.timezone) ? event.timezone : null;
+  const template = readTemplate(sheet('Day template', true), err);
+  const judges = readJudges(sheet('Judges', true), err);
+  const criteria = readCriteria(sheet('Criteria', false), err);
 
-  // ── Rooms ──
-  const rooms: RoomRow[] = [];
-  const roomByName = new Map<string, RoomRow>();
-  for (const r of sheet('Rooms', true)) {
-    const name = text(pick(r.cells, 'room_name', 'room', 'name'));
-    if (!name) {
-      err('Rooms', r.row, 'Room name is empty.');
-      continue;
+  const schedule: PlannedBlock[] = [];
+  const availSheet = findSheet(wb, 'Availability');
+  if (!availSheet) {
+    err('Availability', null, 'The "Availability" sheet is missing. Start from the template so every sheet is there.');
+  } else {
+    const blocks = new Map<string, TemplateItem[]>();
+    for (const t of template) blocks.set(t.block.toLowerCase(), [...(blocks.get(t.block.toLowerCase()) ?? []), t]);
+    const grid = readAvailability(availSheet, blocks, judges, err, warn);
+    if (grid && timezone && event) {
+      for (const col of grid.columns) {
+        const items = blocks.get(col.block.toLowerCase())!;
+        const answers = grid.answers.get(col.index) ?? new Map<string, Availability>();
+        // A block nobody can sit stays blank: no slots at all.
+        if (answers.size === 0) continue;
+        const usable = items.some((i) => i.kind === 'INTERVIEW' && [...answers.values()].some((a) => covers(a, i.start, i.end)));
+        for (const [email, a] of answers) {
+          if (a.kind === 'WINDOW' && !items.some((i) => i.kind === 'INTERVIEW' && covers(a, i.start, i.end))) {
+            const name = judges.find((j) => j.email === email)?.name ?? email;
+            warn('Availability', grid.rowOf.get(email) ?? null,
+              `${name}'s window ${hhmmOf(a.from)}-${hhmmOf(a.to)} on ${col.header} doesn't cover a whole interview, so they won't sit any.`);
+          }
+        }
+        if (!usable) continue;
+        const slots: PlannedSlot[] = items.map((item, i) => {
+          const available = item.kind === 'INTERVIEW'
+            ? [...answers.entries()].filter(([, a]) => covers(a, item.start, item.end)).map(([e]) => e)
+            : [];
+          const startUtc = zonedTimeToUtc(col.date, Math.floor(item.start / 60), item.start % 60, timezone);
+          const endUtc = zonedTimeToUtc(col.date, Math.floor(item.end / 60), item.end % 60, timezone);
+          return {
+            kind: item.kind,
+            sequence: i + 1,
+            start: hhmmOf(item.start),
+            end: hhmmOf(item.end),
+            startUtc,
+            endUtc,
+            available,
+            panel: available.length >= event.minPanel ? available : [],
+          };
+        });
+        const interviews = slots.filter((s) => s.kind === 'INTERVIEW');
+        const thin = interviews.filter((s) => s.panel.length === 0).length;
+        if (thin > 0) {
+          warn('Availability', null,
+            `${col.header}: ${thin} of ${interviews.length} interviews have fewer than ${event.minPanel} judges available, so they have no panel.`);
+        }
+        schedule.push({ date: col.date, block: items[0].block, slots });
+      }
+      schedule.sort((a, b) => a.slots[0].startUtc.getTime() - b.slots[0].startUtc.getTime());
+      if (schedule.length === 0 && !errors.some((e) => e.sheet === 'Availability')) {
+        err('Availability', null, 'No judge is available for any block, so there is nothing to schedule.');
+      }
     }
-    const key = name.toLowerCase();
-    if (roomByName.has(key)) {
-      err('Rooms', r.row, `"${name}" is listed twice (also row ${roomByName.get(key)!.row}).`);
-      continue;
-    }
-    const room = {
-      row: r.row,
-      name,
-      location: text(pick(r.cells, 'location')),
-      hasVideo: yes(pick(r.cells, 'video_conferencing', 'video', 'vc')),
-    };
-    rooms.push(room);
-    roomByName.set(key, room);
   }
 
-  // ── Teams ──
-  const teams: TeamRow[] = [];
-  const teamByName = new Map<string, TeamRow>();
-  for (const r of sheet('Teams', true)) {
+  return finish({ event, template, judges, schedule, criteria }, errors, warnings);
+}
+
+function readEvent(rows: RawRow[], wb: XLSX.WorkBook, err: (s: string, r: number | null, m: string) => void): EventInfo | null {
+  if (rows.length === 0) {
+    if (findSheet(wb, 'Event')) err('Event', 2, 'The Event sheet has no event details. Fill in row 2.');
+    return null;
+  }
+  if (rows.length > 1) err('Event', rows[1].row, 'The Event sheet should have one row. Delete the extra rows.');
+  const r = rows[0];
+  const c = r.cells;
+  const name = text(pick(c, 'event_name', 'name'));
+  const tz = text(pick(c, 'timezone', 'time_zone')) ?? 'Asia/Singapore';
+  const minRaw = pick(c, 'minimum_panel_size', 'min_panel_size', 'minimum_panel');
+  const minPanel = minRaw === null ? 2 : positiveNumber(minRaw);
+  const admins = (text(pick(c, 'admin_emails', 'admins', 'admin_email')) ?? '')
+    .split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+
+  if (!name) err('Event', r.row, 'Event name is empty.');
+  if (!validTimezone(tz)) err('Event', r.row, `"${tz}" is not a timezone this system recognises. Use a name like Asia/Singapore.`);
+  if (minPanel === null || !Number.isInteger(minPanel) || minPanel > 10) {
+    err('Event', r.row, 'Minimum panel size must be a whole number from 1 to 10, or left blank for 2.');
+  }
+  for (const a of admins) if (!EMAIL.test(a)) err('Event', r.row, `"${a}" in Admin emails is not an email address.`);
+  return {
+    name: name ?? '',
+    location: text(pick(c, 'location', 'venue')),
+    timezone: tz,
+    minPanel: minPanel ?? 2,
+    adminEmails: [...new Set(admins)],
+  };
+}
+
+/**
+ * The day template, with each item's start and end worked out. Items in a
+ * block follow on one after another from the block's start time; a later row
+ * may give its own start time to leave a gap, but never to overlap.
+ */
+function readTemplate(rows: RawRow[], err: (s: string, r: number | null, m: string) => void): TemplateItem[] {
+  const out: TemplateItem[] = [];
+  const cursor = new Map<string, number>();
+  const names = new Map<string, string>();
+  for (const r of rows) {
     const c = r.cells;
-    const name = text(pick(c, 'team_name', 'team', 'name'));
-    const projectName = text(pick(c, 'project_name', 'project'));
-    const leadName = text(pick(c, 'team_lead_name', 'lead_name', 'team_lead'));
-    const leadEmail = text(pick(c, 'team_lead_email', 'lead_email'))?.toLowerCase() ?? null;
-    const mode = normaliseMode(pick(c, 'presentation_mode', 'mode'));
-    const missing = [
-      !name && 'Team name',
-      !projectName && 'Project name',
-      !leadName && 'Team lead name',
-      !leadEmail && 'Team lead email',
-    ].filter(Boolean);
-    if (missing.length) err('Teams', r.row, `${missing.join(', ')} ${missing.length > 1 ? 'are' : 'is'} empty.`);
-    if (leadEmail && !EMAIL.test(leadEmail)) err('Teams', r.row, `"${leadEmail}" is not an email address.`);
-    if (mode === 'invalid') err('Teams', r.row, 'Presentation mode must be "In person" or "Video".');
-    if (!name) continue;
-    const key = name.toLowerCase();
-    if (teamByName.has(key)) {
-      err('Teams', r.row, `Team "${name}" is listed twice (also row ${teamByName.get(key)!.row}).`);
-      continue;
-    }
-    const team: TeamRow = {
-      row: r.row,
-      name,
-      projectName: projectName ?? '',
-      track: text(pick(c, 'track')),
-      country: text(pick(c, 'country'))?.toUpperCase() ?? null,
-      organisation: text(pick(c, 'organisation', 'organization')),
-      leadName: leadName ?? '',
-      leadEmail: leadEmail ?? '',
-      mode: mode === 'invalid' ? 'IN_PERSON' : mode,
-      problemStatement: text(pick(c, 'problem_statement')),
-      solutionSummary: text(pick(c, 'solution_summary')),
-    };
-    teams.push(team);
-    teamByName.set(key, team);
-  }
+    const block = text(pick(c, 'block'));
+    const kind = normaliseKind(pick(c, 'item', 'type'));
+    const durRaw = pick(c, 'duration', 'duration_minutes', 'minutes');
+    const dur = positiveNumber(durRaw);
+    const startRaw = pick(c, 'start_time', 'start', 'time');
+    const start = parseTime(startRaw);
+    if (!block) { err('Day template', r.row, 'Block is empty.'); continue; }
+    const key = block.toLowerCase();
+    if (!names.has(key)) names.set(key, block);
+    if (!kind) { err('Day template', r.row, `Item must be Interview, Break or Calibration.`); continue; }
+    if (durRaw === null) { err('Day template', r.row, 'Duration is empty.'); continue; }
+    if (dur === null || !Number.isInteger(dur) || dur > 240) { err('Day template', r.row, 'Duration must be a whole number of minutes, up to 240.'); continue; }
+    if (startRaw !== null && !start) { err('Day template', r.row, `Start time "${startRaw}" can't be read. Use 24-hour HH:MM, e.g. 09:00.`); continue; }
 
-  // ── Judges ──
+    let at: number;
+    if (!cursor.has(key)) {
+      if (!start) { err('Day template', r.row, `The first row of block ${block} needs a start time.`); continue; }
+      at = minutesOf(start);
+    } else if (start) {
+      at = minutesOf(start);
+      if (at < cursor.get(key)!) {
+        err('Day template', r.row, `Start time ${start} overlaps the previous item in ${block}, which ends at ${hhmmOf(cursor.get(key)!)}.`);
+        continue;
+      }
+    } else {
+      at = cursor.get(key)!;
+    }
+    if (at + dur > 24 * 60) { err('Day template', r.row, `This item runs past midnight.`); continue; }
+    out.push({ row: r.row, block: names.get(key)!, kind, start: at, end: at + dur });
+    cursor.set(key, at + dur);
+  }
+  if (rows.length > 0 && out.length === 0) return out;
+
+  const byBlock = new Map<string, TemplateItem[]>();
+  for (const t of out) byBlock.set(t.block, [...(byBlock.get(t.block) ?? []), t]);
+  for (const [block, items] of byBlock) {
+    if (!items.some((i) => i.kind === 'INTERVIEW')) err('Day template', items[0].row, `Block ${block} has no interviews.`);
+  }
+  const spans = [...byBlock.entries()].map(([block, items]) => ({ block, start: items[0].start, end: items[items.length - 1].end, row: items[0].row }))
+    .sort((a, b) => a.start - b.start);
+  for (let i = 1; i < spans.length; i++) {
+    if (spans[i].start < spans[i - 1].end) {
+      err('Day template', spans[i].row, `Block ${spans[i].block} starts at ${hhmmOf(spans[i].start)}, before block ${spans[i - 1].block} ends at ${hhmmOf(spans[i - 1].end)}. One panel can't be in both.`);
+    }
+  }
+  return out;
+}
+
+function readJudges(rows: RawRow[], err: (s: string, r: number | null, m: string) => void): JudgeRow[] {
   const judges: JudgeRow[] = [];
-  const judgeByEmail = new Map<string, JudgeRow>();
-  for (const r of sheet('Judges', true)) {
+  const seen = new Map<string, number>();
+  for (const r of rows) {
     const c = r.cells;
     const name = text(pick(c, 'name', 'judge_name'));
     const email = text(pick(c, 'email', 'judge_email'))?.toLowerCase() ?? null;
     const tier = normaliseTier(pick(c, 'tier'));
     if (!name) err('Judges', r.row, 'Name is empty.');
-    if (!email) {
-      err('Judges', r.row, 'Email is empty. It is how the Schedule sheet refers to the judge.');
-      continue;
-    }
-    if (!EMAIL.test(email)) {
-      err('Judges', r.row, `"${email}" is not an email address.`);
-      continue;
-    }
+    if (!email) { err('Judges', r.row, 'Email is empty. It is how the Availability sheet refers to the judge.'); continue; }
+    if (!EMAIL.test(email)) { err('Judges', r.row, `"${email}" is not an email address.`); continue; }
     if (tier === 'invalid') err('Judges', r.row, `Tier must be one of ${TIERS.join(', ')}, or left blank.`);
-    if (judgeByEmail.has(email)) {
-      err('Judges', r.row, `${email} is listed twice (also row ${judgeByEmail.get(email)!.row}).`);
-      continue;
-    }
+    if (seen.has(email)) { err('Judges', r.row, `${email} is listed twice (also row ${seen.get(email)}).`); continue; }
+    seen.set(email, r.row);
     const phone = pick(c, 'phone', 'mobile');
-    const judge: JudgeRow = {
+    judges.push({
       row: r.row,
       name: name ?? email,
       email,
@@ -457,148 +360,88 @@ export function checkWorkbook(buffer: Buffer): CheckResult {
       organisation: text(pick(c, 'organisation', 'organization')),
       designation: text(pick(c, 'designation', 'title')),
       tier: tier === 'invalid' ? null : tier,
-    };
-    judges.push(judge);
-    judgeByEmail.set(email, judge);
-  }
-
-  // ── Schedule ──
-  const sessions: SessionRow[] = [];
-  const scheduledTeams = new Map<string, number>();
-  for (const r of sheet('Schedule', true)) {
-    const c = r.cells;
-    const rawDate = pick(c, 'date');
-    const rawStart = pick(c, 'start_time', 'start');
-    const rawEnd = pick(c, 'end_time', 'end');
-    const date = parseDate(rawDate);
-    const start = parseTime(rawStart);
-    const end = parseTime(rawEnd);
-    const roomName = text(pick(c, 'room'));
-    const teamName = text(pick(c, 'team_name', 'team'));
-
-    let bad = false;
-    if (rawDate === null) { err('Schedule', r.row, 'Date is empty.'); bad = true; }
-    else if (!date) { err('Schedule', r.row, `Date "${rawDate}" can't be read. Use YYYY-MM-DD, e.g. 2026-10-12.`); bad = true; }
-    if (rawStart === null) { err('Schedule', r.row, 'Start time is empty.'); bad = true; }
-    else if (!start) { err('Schedule', r.row, `Start time "${rawStart}" can't be read. Use 24-hour HH:MM, e.g. 09:30.`); bad = true; }
-    if (rawEnd === null) { err('Schedule', r.row, 'End time is empty.'); bad = true; }
-    else if (!end) { err('Schedule', r.row, `End time "${rawEnd}" can't be read. Use 24-hour HH:MM, e.g. 09:55.`); bad = true; }
-    if (start && end && end <= start) { err('Schedule', r.row, `End time ${end} is not after start time ${start}.`); bad = true; }
-
-    if (!roomName) { err('Schedule', r.row, 'Room is empty.'); bad = true; }
-    else if (!roomByName.has(roomName.toLowerCase())) { err('Schedule', r.row, `Room "${roomName}" is not on the Rooms sheet.`); bad = true; }
-
-    if (!teamName) { err('Schedule', r.row, 'Team name is empty.'); bad = true; }
-    else if (!teamByName.has(teamName.toLowerCase())) { err('Schedule', r.row, `Team "${teamName}" is not on the Teams sheet.`); bad = true; }
-    else {
-      const key = teamName.toLowerCase();
-      if (scheduledTeams.has(key)) {
-        err('Schedule', r.row, `Team "${teamName}" is already scheduled on row ${scheduledTeams.get(key)}. Each team is judged once.`);
-        bad = true;
-      } else {
-        scheduledTeams.set(key, r.row);
-      }
-    }
-
-    const judgeEmails: string[] = [];
-    for (let i = 1; i <= MAX_JUDGES_PER_SESSION; i++) {
-      const raw = text(pick(c, `judge_${i}_email`, `judge_${i}`));
-      if (!raw) continue;
-      const email = raw.toLowerCase();
-      if (!judgeByEmail.has(email)) {
-        err('Schedule', r.row, `Judge ${i} (${email}) is not on the Judges sheet.`);
-        bad = true;
-      } else if (judgeEmails.includes(email)) {
-        err('Schedule', r.row, `${email} is on this panel twice.`);
-        bad = true;
-      } else {
-        judgeEmails.push(email);
-      }
-    }
-    if (judgeEmails.length === 0 && !bad) {
-      err('Schedule', r.row, 'No judges on this session. Judge 1 email is required.');
-      bad = true;
-    }
-
-    if (bad || !date || !start || !end || !timezone) continue;
-    const [sh, sm] = start.split(':').map(Number);
-    const [eh, em] = end.split(':').map(Number);
-    sessions.push({
-      row: r.row,
-      date,
-      start,
-      end,
-      startUtc: zonedTimeToUtc(date, sh, sm, timezone),
-      endUtc: zonedTimeToUtc(date, eh, em, timezone),
-      room: roomByName.get(roomName!.toLowerCase())!.name,
-      team: teamByName.get(teamName!.toLowerCase())!.name,
-      judgeEmails,
     });
   }
+  return judges;
+}
 
-  // Overlaps: a room or a judge in two places at once.
-  const overlaps = (key: (s: SessionRow) => string[], what: (k: string) => string) => {
-    const byKey = new Map<string, SessionRow[]>();
-    for (const s of sessions) for (const k of key(s)) byKey.set(k, [...(byKey.get(k) ?? []), s]);
-    for (const [k, list] of byKey) {
-      list.sort((a, b) => a.startUtc.getTime() - b.startUtc.getTime());
-      for (let i = 1; i < list.length; i++) {
-        const prev = list[i - 1];
-        const cur = list[i];
-        if (cur.startUtc < prev.endUtc) {
-          err('Schedule', cur.row, `${what(k)} is booked at ${cur.date} ${cur.start}–${cur.end}, overlapping row ${prev.row} (${prev.start}–${prev.end}).`);
-        }
+type AvailabilityColumn = { index: number; header: string; date: string; block: string };
+
+/**
+ * The availability grid: judges down, "YYYY-MM-DD Block" across. Returns,
+ * per column, each judge's answer — only judges who said yes or gave a window.
+ */
+function readAvailability(
+  sheet: XLSX.WorkSheet,
+  blocks: Map<string, TemplateItem[]>,
+  judges: JudgeRow[],
+  err: (s: string, r: number | null, m: string) => void,
+  warn: (s: string, r: number | null, m: string) => void,
+): { columns: AvailabilityColumn[]; answers: Map<number, Map<string, Availability>>; rowOf: Map<string, number> } | null {
+  const grid = readGrid(sheet);
+  if (grid.length < 2) {
+    err('Availability', null, 'The Availability sheet has no judges.');
+    return null;
+  }
+  const header = grid[0] ?? [];
+  const columns: AvailabilityColumn[] = [];
+  const seenCols = new Map<string, string>();
+  for (let j = 1; j < header.length; j++) {
+    const raw = header[j];
+    if (isBlank(raw)) continue;
+    const h = String(raw).trim();
+    const m = h.match(/^(.*\S)\s+(\S+)$/);
+    const date = m ? parseDate(m[1]) : null;
+    const block = m?.[2];
+    if (!m || !date) {
+      err('Availability', 1, `Column header "${h}" should be a date and block, e.g. 2026-10-19 AM.`);
+      continue;
+    }
+    if (!blocks.has(block!.toLowerCase())) {
+      err('Availability', 1, `Column "${h}": block "${block}" is not on the Day template sheet.`);
+      continue;
+    }
+    const key = `${date}|${block!.toLowerCase()}`;
+    if (seenCols.has(key)) {
+      err('Availability', 1, `Column "${h}" repeats "${seenCols.get(key)}".`);
+      continue;
+    }
+    seenCols.set(key, h);
+    columns.push({ index: j, header: h, date, block: blocks.get(block!.toLowerCase())![0].block });
+  }
+  if (columns.length === 0 && !header.slice(1).some((v) => !isBlank(v))) {
+    err('Availability', 1, 'The Availability sheet has no date columns. Add one column per date and block, e.g. 2026-10-19 AM.');
+  }
+
+  const known = new Map(judges.map((j) => [j.email, j]));
+  const answers = new Map<number, Map<string, Availability>>();
+  const rowOf = new Map<string, number>();
+  for (let i = 1; i < grid.length; i++) {
+    const line = grid[i] ?? [];
+    if (line.every(isBlank)) continue;
+    const rowNo = i + 1;
+    const email = text(line[0])?.toLowerCase();
+    if (!email) { err('Availability', rowNo, 'Judge email is empty.'); continue; }
+    if (!known.has(email)) { err('Availability', rowNo, `${email} is not on the Judges sheet.`); continue; }
+    if (rowOf.has(email)) { err('Availability', rowNo, `${email} has two rows (also row ${rowOf.get(email)}).`); continue; }
+    rowOf.set(email, rowNo);
+    for (const col of columns) {
+      const a = parseAvailability(line[col.index]);
+      if (a === 'invalid') {
+        err('Availability', rowNo,
+          `${known.get(email)!.name}, ${col.header}: "${String(line[col.index]).trim()}" isn't Yes, No or a time window like 13:00-16:00.`);
+        continue;
       }
-    }
-  };
-  overlaps((s) => [s.room.toLowerCase()], (k) => `Room "${roomByName.get(k)?.name ?? k}"`);
-  overlaps((s) => s.judgeEmails, (k) => judgeByEmail.get(k)?.name ? `${judgeByEmail.get(k)!.name} (${k})` : k);
-
-  // Warnings about the schedule as a whole.
-  for (const s of sessions) {
-    if (s.judgeEmails.length === 1) warn('Schedule', s.row, `${s.team} has only one judge.`);
-    const team = teamByName.get(s.team.toLowerCase());
-    const room = roomByName.get(s.room.toLowerCase());
-    if (team?.mode === 'VIRTUAL' && room && !room.hasVideo) {
-      warn('Schedule', s.row, `${s.team} presents by video, but ${room.name} has no video conferencing.`);
+      if (!a) continue;
+      const m = answers.get(col.index) ?? new Map<string, Availability>();
+      m.set(email, a);
+      answers.set(col.index, m);
     }
   }
-  const perJudgeDay = new Map<string, number>();
-  for (const s of sessions) for (const e of s.judgeEmails) perJudgeDay.set(`${e}|${s.date}`, (perJudgeDay.get(`${e}|${s.date}`) ?? 0) + 1);
-  for (const [k, n] of perJudgeDay) {
-    if (n > HEAVY_DAY_SESSIONS) {
-      const [email, date] = k.split('|');
-      const j = judgeByEmail.get(email);
-      warn('Schedule', null, `${j?.name ?? email} has ${n} sessions on ${date}.`);
-    }
-  }
-  for (const t of teams) {
-    if (!scheduledTeams.has(t.name.toLowerCase())) warn('Teams', t.row, `${t.name} is not on the Schedule, so it will not be judged.`);
-  }
-  const usedJudges = new Set(sessions.flatMap((s) => s.judgeEmails));
   for (const j of judges) {
-    if (!usedJudges.has(j.email)) warn('Judges', j.row, `${j.name} is not on any session.`);
+    if (!rowOf.has(j.email)) warn('Judges', j.row, `${j.name} has no row on the Availability sheet, so won't sit any interviews.`);
   }
-  if (rooms.length > 0 && sessions.length > 0) {
-    const usedRooms = new Set(sessions.map((s) => s.room.toLowerCase()));
-    for (const r of rooms) if (!usedRooms.has(r.name.toLowerCase())) warn('Rooms', r.row, `${r.name} has no sessions.`);
-  }
-  if (sessions.length === 0 && !errors.some((e) => e.sheet === 'Schedule')) {
-    err('Schedule', null, 'The Schedule sheet has no sessions.');
-  }
-  if (event && event.sessionMinutes > 0) {
-    for (const s of sessions) {
-      const mins = (s.endUtc.getTime() - s.startUtc.getTime()) / 60000;
-      if (mins < event.sessionMinutes) {
-        warn('Schedule', s.row, `${s.team}'s session is ${mins} minutes, shorter than the ${event.sessionMinutes}-minute session length.`);
-      }
-    }
-  }
-
-  // ── Criteria (optional) ──
-  const criteria = checkCriteria(sheet('Criteria', false), err);
-
-  return finish({ event, rooms, teams, judges, sessions, criteria }, errors, warnings);
+  return { columns, answers, rowOf };
 }
 
 /**
@@ -606,7 +449,7 @@ export function checkWorkbook(buffer: Buffer): CheckResult {
  * judges can score: two levels, categories add up to 100, and each category's
  * rows add up to that category's maximum.
  */
-function checkCriteria(rows: RawRow[], err: (s: string, r: number | null, m: string) => void): CriterionRow[] {
+function readCriteria(rows: RawRow[], err: (s: string, r: number | null, m: string) => void): CriterionRow[] {
   const out: CriterionRow[] = [];
   const byName = new Map<string, CriterionRow>();
   for (const r of rows) {
@@ -621,10 +464,7 @@ function checkCriteria(rows: RawRow[], err: (s: string, r: number | null, m: str
     const key = name.toLowerCase();
     if (byName.has(key)) { err('Criteria', r.row, `"${name}" is listed twice (also row ${byName.get(key)!.row}).`); continue; }
     const row: CriterionRow = {
-      row: r.row,
-      name,
-      parent,
-      maxScore: max,
+      row: r.row, name, parent, maxScore: max,
       guidance: text(pick(c, 'guidance', 'guidance_text')),
       requiresComment: yes(pick(c, 'comment_required', 'requires_comment')),
     };
@@ -648,36 +488,36 @@ function checkCriteria(rows: RawRow[], err: (s: string, r: number | null, m: str
   if (total !== RUBRIC_TOTAL) err('Criteria', null, `Categories add up to ${total}. They must add up to ${RUBRIC_TOTAL}.`);
   for (const cat of categories) {
     const kids = out.filter((c) => c.parent?.toLowerCase() === cat.name.toLowerCase());
-    if (kids.length === 0) {
-      err('Criteria', cat.row, `"${cat.name}" has no rows under it. Every category needs at least one row to score.`);
-      continue;
-    }
+    if (kids.length === 0) { err('Criteria', cat.row, `"${cat.name}" has no rows under it. Every category needs at least one row to score.`); continue; }
     const used = kids.reduce((s, k) => s + k.maxScore, 0);
     if (used !== cat.maxScore) err('Criteria', cat.row, `"${cat.name}" allows ${cat.maxScore} points but its rows add up to ${used}.`);
   }
   return out;
 }
 
-const SHEET_ORDER = ['File', 'Event', 'Rooms', 'Teams', 'Judges', 'Schedule', 'Criteria'];
+function finish(wb: ParsedWorkbook, errorsIn: Issue[], warningsIn: Issue[]): CheckResult {
+  const errors = inFileOrder(errorsIn, SHEET_ORDER);
+  const warnings = inFileOrder(warningsIn, SHEET_ORDER);
+  const nameOf = new Map(wb.judges.map((j) => [j.email, j.name]));
 
-/** Sheet by sheet in workbook order, then row by row, so the list reads like the file. */
-function inFileOrder(issues: Issue[]): Issue[] {
-  const rank = (s: string) => (SHEET_ORDER.indexOf(s) + 1) || SHEET_ORDER.length + 1;
-  return [...issues].sort((a, b) => rank(a.sheet) - rank(b.sheet) || (a.row ?? 0) - (b.row ?? 0));
-}
-
-function finish(wb: ParsedWorkbook, errors: Issue[], warnings: Issue[]): CheckResult {
-  errors = inFileOrder(errors);
-  warnings = inFileOrder(warnings);
-  const days = new Map<string, { sessions: number; judges: Set<string>; teams: Set<string> }>();
-  for (const s of wb.sessions) {
-    const d = days.get(s.date) ?? { sessions: 0, judges: new Set<string>(), teams: new Set<string>() };
-    d.sessions++;
-    s.judgeEmails.forEach((e) => d.judges.add(e));
-    d.teams.add(s.team);
-    days.set(s.date, d);
+  const byDate = new Map<string, DaySummary>();
+  let interviews = 0;
+  let withPanel = 0;
+  for (const b of wb.schedule) {
+    const iv = b.slots.filter((s) => s.kind === 'INTERVIEW');
+    const seated = iv.filter((s) => s.panel.length > 0);
+    interviews += iv.length;
+    withPanel += seated.length;
+    const judges = [...new Set(seated.flatMap((s) => s.panel))].map((e) => nameOf.get(e) ?? e);
+    const day = byDate.get(b.date) ?? { date: b.date, blocks: [] };
+    day.blocks.push({ block: b.block, interviews: iv.length, withPanel: seated.length, judges });
+    byDate.set(b.date, day);
   }
+
+  const blockSpans = new Map<string, TemplateItem[]>();
+  for (const t of wb.template) blockSpans.set(t.block, [...(blockSpans.get(t.block) ?? []), t]);
   const categories = wb.criteria.filter((c) => !c.parent).length;
+
   return {
     ok: errors.length === 0,
     errors,
@@ -685,14 +525,18 @@ function finish(wb: ParsedWorkbook, errors: Issue[], warnings: Issue[]): CheckRe
     summary: {
       eventName: wb.event?.name || null,
       timezone: wb.event?.timezone ?? null,
-      rooms: wb.rooms.length,
-      tracks: [...new Set(wb.teams.map((t) => t.track).filter((t): t is string => !!t))],
-      teams: wb.teams.length,
+      minPanel: wb.event?.minPanel ?? null,
       judges: wb.judges.length,
-      sessions: wb.sessions.length,
-      days: [...days.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, d]) => ({ date, sessions: d.sessions, judges: d.judges.size, teams: d.teams.size })),
+      days: byDate.size,
+      interviews,
+      interviewsWithPanel: withPanel,
+      blocks: [...blockSpans.entries()].map(([block, items]) => ({
+        block,
+        start: hhmmOf(items[0].start),
+        end: hhmmOf(items[items.length - 1].end),
+        interviews: items.filter((i) => i.kind === 'INTERVIEW').length,
+      })),
+      schedule: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
       rubric: wb.criteria.length === 0 ? 'UOB rubric (Criteria sheet empty)' : `${categories} categories, ${wb.criteria.length - categories} rows`,
     },
     workbook: wb,
