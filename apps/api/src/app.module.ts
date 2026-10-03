@@ -25,6 +25,7 @@ import { UsersModule } from './users/users.module';
 import { HealthController } from './health.controller';
 import { JudgePortalModule } from './judge-portal/judge-portal.module';
 import { OperationsModule } from './operations/operations.module';
+import { SetupUploadModule } from './setup-upload/setup-upload.module';
 import { HealthResolver } from './health.resolver';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -157,6 +158,7 @@ import { GqlThrottlerGuard } from './common/gql-throttler.guard';
     UsersModule,
     JudgePortalModule,
     OperationsModule,
+    SetupUploadModule,
   ],
   providers: [
     HealthResolver,
