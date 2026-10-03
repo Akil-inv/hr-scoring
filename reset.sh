@@ -11,25 +11,37 @@ fi
 
 echo "Resetting database..."
 
-docker-compose exec -T postgres psql -U hackathon << 'SQL'
--- Delete in dependency order
+if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi
+
+$DC exec -T postgres psql -U hackathon -v ON_ERROR_STOP=1 << 'SQL'
+BEGIN;
+-- Delete in dependency order (checked against every foreign key)
+DELETE FROM team_decisions;
+DELETE FROM judge_links;
+DELETE FROM judging_days;
 DELETE FROM criterion_scores;
 DELETE FROM scorecards;
 DELETE FROM session_judges;
-DELETE FROM judging_sessions;
 DELETE FROM ranking_results;
+DELETE FROM judging_sessions;
+DELETE FROM judge_messages;
 DELETE FROM conflict_declarations;
 DELETE FROM judge_availability;
 DELETE FROM judge_expertise;
 DELETE FROM judges;
+DELETE FROM team_members;
 DELETE FROM teams;
 DELETE FROM scoring_criteria;
 DELETE FROM scoring_templates;
 DELETE FROM time_slots;
+DELETE FROM room_unavailability;
 DELETE FROM rooms;
+DELETE FROM judging_rounds;
 DELETE FROM challenge_tracks;
+DELETE FROM event_users;
 DELETE FROM audit_logs;
 DELETE FROM events;
+COMMIT;
 
 -- Verify
 SELECT 'Events: ' || COUNT(*) FROM events
@@ -41,4 +53,4 @@ UNION ALL SELECT 'Users kept: ' || COUNT(*) FROM users;
 SQL
 
 echo ""
-echo "✅ Data cleared. Users preserved. Ready for fresh setup at https://judge.uobigedm.com/login"
+echo "✅ Data cleared. Users preserved."

@@ -40,7 +40,11 @@ model User {
   conflictsDeclaredBy ConflictDeclaration[] @relation("declared_by")
   conflictsResolvedBy ConflictDeclaration[] @relation("resolved_by")
 
-  eventUsers   EventUser[]
+  eventUsers    EventUser[]
+  daysClosed    JudgingDay[]   @relation("day_closed_by")
+  linksIssued   JudgeLink[]    @relation("link_created_by")
+  decisionsMade TeamDecision[] @relation("decided_by")
+
   @@map("users")
 }
 
@@ -54,26 +58,30 @@ enum EventStatus {
 }
 
 model Event {
-  id                          String      @id @default(uuid()) @db.Uuid
+  id                          String         @id @default(uuid()) @db.Uuid
   name                        String
   description                 String?
   location                    String?
-  timezone                    String      @default("UTC")
-  startDate                   DateTime    @map("start_date") @db.Date
-  endDate                     DateTime    @map("end_date") @db.Date
-  judgingStart                DateTime?   @map("judging_start") @db.Date
-  judgingEnd                  DateTime?   @map("judging_end") @db.Date
-  sessionDurationMinutes      Int         @default(20) @map("session_duration_minutes")
-  presentationDurationMinutes Int         @default(10) @map("presentation_duration_minutes")
-  qaDurationMinutes           Int         @default(5) @map("qa_duration_minutes")
-  scoringDurationMinutes      Int         @default(3) @map("scoring_duration_minutes")
-  transitionBufferMinutes     Int         @default(2) @map("transition_buffer_minutes")
-  minJudgesPerTeam            Int         @default(3) @map("min_judges_per_team")
-  maxJudgesPerTeam            Int         @default(5) @map("max_judges_per_team")
-  status                      EventStatus @default(DRAFT)
-  createdAt                   DateTime    @default(now()) @map("created_at")
-  updatedAt                   DateTime    @updatedAt @map("updated_at")
-  deletedAt                   DateTime?   @map("deleted_at")
+  timezone                    String         @default("UTC")
+  startDate                   DateTime       @map("start_date") @db.Date
+  endDate                     DateTime       @map("end_date") @db.Date
+  judgingStart                DateTime?      @map("judging_start") @db.Date
+  judgingEnd                  DateTime?      @map("judging_end") @db.Date
+  sessionDurationMinutes      Int            @default(20) @map("session_duration_minutes")
+  presentationDurationMinutes Int            @default(10) @map("presentation_duration_minutes")
+  qaDurationMinutes           Int            @default(5) @map("qa_duration_minutes")
+  scoringDurationMinutes      Int            @default(3) @map("scoring_duration_minutes")
+  transitionBufferMinutes     Int            @default(2) @map("transition_buffer_minutes")
+  minJudgesPerTeam            Int            @default(3) @map("min_judges_per_team")
+  maxJudgesPerTeam            Int            @default(5) @map("max_judges_per_team")
+  status                      EventStatus    @default(DRAFT)
+  /// How the event was set up. UPLOAD events come from the Excel workbook and
+  /// use day links, per-team decisions and day closure; WIZARD events keep the
+  /// original flow.
+  setupMode                   EventSetupMode @default(WIZARD) @map("setup_mode")
+  createdAt                   DateTime       @default(now()) @map("created_at")
+  updatedAt                   DateTime       @updatedAt @map("updated_at")
+  deletedAt                   DateTime?      @map("deleted_at")
 
   tracks           ChallengeTrack[]
   rooms            Room[]
@@ -88,6 +96,10 @@ model Event {
   sessions         JudgingSession[]
 
   eventUsers    EventUser[]
+  judgingDays   JudgingDay[]
+  judgeLinks    JudgeLink[]
+  teamDecisions TeamDecision[]
+
   @@map("events")
 }
 
@@ -126,20 +138,20 @@ enum RoomStatus {
 }
 
 model Room {
-  id                  String     @id @default(uuid()) @db.Uuid
-  eventId             String     @map("event_id") @db.Uuid
-  name                String
-  capacity            Int?
-  locationDescription String?    @map("location_description")
-  isVirtual           Boolean    @default(false) @map("is_virtual")
+  id                   String               @id @default(uuid()) @db.Uuid
+  eventId              String               @map("event_id") @db.Uuid
+  name                 String
+  capacity             Int?
+  locationDescription  String?              @map("location_description")
+  isVirtual            Boolean              @default(false) @map("is_virtual")
   // Distinct from isVirtual: a physical room that has video conferencing
   // equipment. Teams outside SG present remotely and need one of these.
-  hasVideoConferencing Boolean   @default(false) @map("has_video_conferencing")
-  status              RoomStatus @default(ACTIVE)
-  unavailability      RoomUnavailability[]
-  createdAt           DateTime   @default(now()) @map("created_at")
-  updatedAt           DateTime   @updatedAt @map("updated_at")
-  deletedAt           DateTime?  @map("deleted_at")
+  hasVideoConferencing Boolean              @default(false) @map("has_video_conferencing")
+  status               RoomStatus           @default(ACTIVE)
+  unavailability       RoomUnavailability[]
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+  deletedAt            DateTime?            @map("deleted_at")
 
   event    Event            @relation(fields: [eventId], references: [id])
   sessions JudgingSession[]
@@ -248,6 +260,7 @@ model Team {
   sessions   JudgingSession[]
   scorecards Scorecard[]
   rankings   RankingResult[]
+  decision   TeamDecision?
 
   @@unique([eventId, name])
   @@map("teams")
@@ -274,7 +287,7 @@ enum JudgeTier {
   L3 // ED - rotates between rooms
   L4 // Senior - rotates between rooms
   PS // Professional services - continuous, lunch break only
-  V  // Vendor - own platform only, additive to the panel
+  V // Vendor - own platform only, additive to the panel
 }
 
 enum JudgeType {
@@ -301,7 +314,7 @@ model Judge {
   organisation         String?
   designation          String?
   judgeType            JudgeType   @map("judge_type")
-  judgeTier             JudgeTier   @default(L1) @map("judge_tier")
+  judgeTier            JudgeTier   @default(L1) @map("judge_tier")
   maxSessions          Int         @default(10) @map("max_sessions")
   // Has agreed to be interrupted and step in at short notice. Still scheduled
   // normally — this marks availability for a swap, not reserve status.
@@ -318,6 +331,7 @@ model Judge {
   expertise     JudgeExpertise[]
   conflicts     ConflictDeclaration[]
   sessionJudges SessionJudge[]
+  links         JudgeLink[]
   scorecards    Scorecard[]
 
   @@unique([eventId, email])
@@ -442,9 +456,9 @@ model ScoringCriterion {
   // Two-level structure: a criterion with no parent is a category, one with a
   // parent is a scoring row beneath it. Depth is enforced at two in the
   // service — a parent may not itself have a parent.
-  parentId     String?             @map("parent_id") @db.Uuid
-  parent       ScoringCriterion?   @relation("CriterionTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children     ScoringCriterion[]  @relation("CriterionTree")
+  parentId String?            @map("parent_id") @db.Uuid
+  parent   ScoringCriterion?  @relation("CriterionTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children ScoringCriterion[] @relation("CriterionTree")
 
   id              String   @id @default(uuid()) @db.Uuid
   templateId      String   @map("template_id") @db.Uuid
@@ -539,23 +553,29 @@ model JudgingSession {
   judges     SessionJudge[]
   scorecards Scorecard[]
   rankings   RankingResult[]
+  links      JudgeLink[]
+  decisions  TeamDecision[]
 
   @@map("judging_sessions")
 }
 
 model SessionJudge {
-  id        String   @id @default(uuid()) @db.Uuid
-  sessionId String   @map("session_id") @db.Uuid
-  judgeId   String   @map("judge_id") @db.Uuid
-  attended  Boolean  @default(false)
+  id            String    @id @default(uuid()) @db.Uuid
+  sessionId     String    @map("session_id") @db.Uuid
+  judgeId       String    @map("judge_id") @db.Uuid
+  attended      Boolean   @default(false)
   /// The judge has stepped out of this session.
   ///
   /// Distinct from `attended`, which records whether they turned up. A break is
   /// declared by the judge for one session and reversed when they return; it is
   /// not a statement about the whole day.
-  onBreak   Boolean  @default(false) @map("on_break")
-  breakAt   DateTime? @map("break_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  onBreak       Boolean   @default(false) @map("on_break")
+  breakAt       DateTime? @map("break_at")
+  /// Set when the organizing team takes an absent judge off the panel. A
+  /// removed judge's scorecard no longer counts towards the team being ready.
+  removedAt     DateTime? @map("removed_at")
+  removedReason String?   @map("removed_reason")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   session JudgingSession @relation(fields: [sessionId], references: [id])
   judge   Judge          @relation(fields: [judgeId], references: [id])
@@ -638,7 +658,7 @@ model RankingResult {
   rankPosition      Int           @map("rank_position")
   aggregatedScore   Decimal       @map("aggregated_score") @db.Decimal(6, 2)
   judgeCount        Int           @map("judge_count")
-  tied              Boolean  @default(false)
+  tied              Boolean       @default(false)
   aggregationMethod String        @default("criterion_average_sum") @map("aggregation_method")
   status            RankingStatus @default(CALCULATING)
   approvedBy        String?       @map("approved_by") @db.Uuid
@@ -658,20 +678,20 @@ model RankingResult {
 }
 
 model JudgingRound {
-  id              String      @id @default(uuid()) @db.Uuid
-  eventId         String      @map("event_id") @db.Uuid
-  name            String
-  roundNumber     Int         @map("round_number")
-  status          RoundStatus @default(PENDING)
-  allowedTiers    String[]    @map("allowed_tiers")
-  teamCount       Int?        @map("team_count")
-  advanceCount    Int?        @map("advance_count")
-  scoringTemplateId String?   @map("scoring_template_id") @db.Uuid
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
+  id                String      @id @default(uuid()) @db.Uuid
+  eventId           String      @map("event_id") @db.Uuid
+  name              String
+  roundNumber       Int         @map("round_number")
+  status            RoundStatus @default(PENDING)
+  allowedTiers      String[]    @map("allowed_tiers")
+  teamCount         Int?        @map("team_count")
+  advanceCount      Int?        @map("advance_count")
+  scoringTemplateId String?     @map("scoring_template_id") @db.Uuid
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
 
-  event           Event       @relation(fields: [eventId], references: [id])
-  sessions        JudgingSession[]
+  event    Event            @relation(fields: [eventId], references: [id])
+  sessions JudgingSession[]
 
   @@map("judging_rounds")
 }
@@ -686,7 +706,6 @@ enum RoundStatus {
   COMPLETED
 }
 
-
 model EventUser {
   id        String    @id @default(uuid()) @db.Uuid
   userId    String    @map("user_id") @db.Uuid
@@ -695,6 +714,113 @@ model EventUser {
   createdAt DateTime  @default(now()) @map("created_at")
   user      User      @relation(fields: [userId], references: [id])
   event     Event     @relation(fields: [eventId], references: [id])
+
   @@unique([userId, eventId])
   @@map("event_users")
+}
+
+// ─── Day-based judging (events set up by Excel upload) ──
+
+enum EventSetupMode {
+  WIZARD
+  UPLOAD
+}
+
+enum JudgingDayStatus {
+  OPEN
+  CLOSED
+}
+
+/// One row per judging date of an event. Closing the day revokes its judge
+/// links and locks its scorecards; a closed day is never reopened.
+model JudgingDay {
+  id         String           @id @default(uuid()) @db.Uuid
+  eventId    String           @map("event_id") @db.Uuid
+  date       DateTime         @db.Date
+  status     JudgingDayStatus @default(OPEN)
+  closedById String?          @map("closed_by") @db.Uuid
+  closedAt   DateTime?        @map("closed_at")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+
+  event    Event       @relation(fields: [eventId], references: [id])
+  closedBy User?       @relation("day_closed_by", fields: [closedById], references: [id])
+  links    JudgeLink[]
+
+  @@unique([eventId, date])
+  @@map("judging_days")
+}
+
+enum JudgeLinkScope {
+  DAY
+  SESSION
+}
+
+/// A judge's link, stored so it can be revoked. A DAY link lets the judge
+/// score their sessions on that day; a SESSION link (issued when the admin
+/// reopens a session) lets them score that one session. Either way the judge
+/// can view their whole schedule read-only.
+model JudgeLink {
+  id            String         @id @default(uuid()) @db.Uuid
+  token         String         @unique
+  eventId       String         @map("event_id") @db.Uuid
+  judgeId       String         @map("judge_id") @db.Uuid
+  scope         JudgeLinkScope
+  dayId         String?        @map("day_id") @db.Uuid
+  sessionId     String?        @map("session_id") @db.Uuid
+  createdById   String?        @map("created_by") @db.Uuid
+  createdAt     DateTime       @default(now()) @map("created_at")
+  lastUsedAt    DateTime?      @map("last_used_at")
+  revokedAt     DateTime?      @map("revoked_at")
+  revokedReason String?        @map("revoked_reason")
+
+  event     Event           @relation(fields: [eventId], references: [id])
+  judge     Judge           @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+  day       JudgingDay?     @relation(fields: [dayId], references: [id])
+  session   JudgingSession? @relation(fields: [sessionId], references: [id])
+  createdBy User?           @relation("link_created_by", fields: [createdById], references: [id])
+
+  @@index([judgeId])
+  @@index([dayId])
+  @@index([sessionId])
+  @@map("judge_links")
+}
+
+enum TeamDecisionValue {
+  SELECTED
+  WAITLIST
+  NOT_SELECTED
+}
+
+enum TeamDecisionStatus {
+  DRAFT
+  SUBMITTED
+}
+
+/// The admin's closure of a team's record: feedback and a decision. Each team
+/// is judged once, so there is one row per team. Reopening the team's session
+/// moves it back to DRAFT and bumps the revision; earlier versions live in the
+/// audit log.
+model TeamDecision {
+  id          String             @id @default(uuid()) @db.Uuid
+  eventId     String             @map("event_id") @db.Uuid
+  teamId      String             @unique @map("team_id") @db.Uuid
+  sessionId   String             @map("session_id") @db.Uuid
+  decision    TeamDecisionValue?
+  feedback    String?
+  status      TeamDecisionStatus @default(DRAFT)
+  revision    Int                @default(1)
+  decidedById String?            @map("decided_by") @db.Uuid
+  decidedAt   DateTime?          @map("decided_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  event     Event          @relation(fields: [eventId], references: [id])
+  team      Team           @relation(fields: [teamId], references: [id])
+  session   JudgingSession @relation(fields: [sessionId], references: [id])
+  decidedBy User?          @relation("decided_by", fields: [decidedById], references: [id])
+
+  @@index([eventId])
+  @@index([sessionId])
+  @@map("team_decisions")
 }
