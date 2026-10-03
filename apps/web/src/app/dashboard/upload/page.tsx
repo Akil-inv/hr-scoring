@@ -163,6 +163,7 @@ export default function UploadSetupPage() {
               : <>{preview.errors.length} problem{preview.errors.length === 1 ? '' : 's'} to fix in the workbook before it can be uploaded.</>}
           </div>
 
+          {(s.judges > 0 || s.days > 0) && <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               ['Judging days', s.days],
@@ -179,10 +180,15 @@ export default function UploadSetupPage() {
 
           <div className="rounded-xl border border-dark-600 bg-dark-800/60 p-4 text-sm">
             <p className="text-slate-300">
-              {s.blocks.map((b) => `${b.block} ${b.start}–${b.end} (${b.interviews} interviews)`).join(' · ')}
-              {s.minPanel ? ` · panels of at least ${s.minPanel}` : ''} · {s.timezone} · {s.rubric}
+              {[
+                ...s.blocks.map((b) => `${b.block} ${b.start}–${b.end} (${b.interviews} interviews)`),
+                s.minPanel ? `panels of at least ${s.minPanel}` : null,
+                s.timezone,
+                s.rubric,
+              ].filter(Boolean).join(' · ')}
             </p>
           </div>
+          </>}
 
           {s.schedule.length > 0 && (
             <div className="rounded-xl border border-dark-600 bg-dark-800/60 p-4">

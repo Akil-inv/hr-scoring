@@ -198,3 +198,14 @@ describe('cell parsing', () => {
     expect(headerKey('Minimum panel size')).toBe('minimum_panel_size');
   });
 });
+
+describe('a candidates file on the setup page', () => {
+  it('says what it is instead of listing missing sheets', () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Name *', 'Date *', 'Time *'], ['A', '2026-10-19', '09:00']]), 'Candidates');
+    const r = checkWorkbook(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    expect(r.errors.map((e) => e.message)).toEqual([
+      'This is a candidates file. Upload it on the Schedule page (Upload candidates), after the setup workbook has created the schedule.',
+    ]);
+  });
+});

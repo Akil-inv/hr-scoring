@@ -3,8 +3,8 @@
  * without hunting through pages.
  */
 export const BRAND = {
-  name: 'Talent Conversations',
+  name: 'Talent Discovery',
   tagline: 'Interviews & assessment',
   /** Browser tab title. */
-  title: 'Talent Conversations · Interviews & assessment',
+  title: 'Talent Discovery · Interviews & assessment',
 };

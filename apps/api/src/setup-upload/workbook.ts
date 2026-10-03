@@ -174,6 +174,13 @@ export function checkWorkbook(buffer: Buffer): CheckResult {
     err('File', null, 'This file could not be read as an Excel workbook. Save it as .xlsx and try again.');
     return finish(empty, errors, warnings);
   }
+  // The candidates file looks similar from the outside. Say what it is rather
+  // than listing every setup sheet it doesn't have.
+  const isSetup = ['Event', 'Day template', 'Judges', 'Availability'].some((n) => findSheet(wb, n));
+  if (!isSetup && findSheet(wb, 'Candidates')) {
+    err('File', null, 'This is a candidates file. Upload it on the Schedule page (Upload candidates), after the setup workbook has created the schedule.');
+    return finish(empty, errors, warnings);
+  }
   const sheet = (name: string, required: boolean): RawRow[] => {
     const rows = readSheet(wb, name);
     if (rows === null) {
