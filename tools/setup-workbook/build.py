@@ -1,17 +1,18 @@
 """
-Builds the event setup workbook: the blank template the app offers for
-download, and a realistic sample event for testing the upload.
+Builds the interview setup workbook: the blank template the app offers for
+download, and a realistic sample for testing the upload.
 
     python3 tools/setup-workbook/build.py
 
 Writes:
     apps/web/public/templates/event-setup-template.xlsx   (served by the app)
-    tools/setup-workbook/sample-event.xlsx                (12 teams, 2 days)
+    tools/setup-workbook/sample-event.xlsx                (10 days, 9 judges)
 
-The column headers here are the contract with the API's workbook reader
-(apps/api/src/setup-upload/workbook.ts). Change one, change both.
+The sheet names, column headers and cell formats here are the contract with
+the API's workbook reader (apps/api/src/setup-upload/workbook.ts). Change one,
+change both.
 """
-from datetime import date, time, timedelta, datetime
+from datetime import date, time, timedelta
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -27,50 +28,34 @@ EXAMPLE = PatternFill("solid", fgColor="FFF2CC")
 RULE = Border(bottom=Side(style="thin", color="BFBFBF"))
 
 # (header, required, width, note)
-SHEETS = {
+FIXED_SHEETS = {
     "Event": [
         ("Event name", True, 34, None),
         ("Location", False, 26, None),
-        ("Timezone", False, 20, "Where the event happens, e.g. Asia/Singapore. All times on the Schedule are in this timezone. Default Asia/Singapore."),
-        ("Session length (minutes)", True, 16, "The usual length of a judging session. Each Schedule row still has its own start and end."),
+        ("Timezone", False, 20, "Where the interviews happen, e.g. Asia/Singapore. Every time in this workbook is in this timezone. Default Asia/Singapore."),
+        ("Minimum panel size", False, 12, "Fewest judges an interview needs. Slots with fewer available judges are left without a panel. Default 2."),
         ("Admin emails", False, 40, "Comma-separated. Each must already have a login (Users & roles); they become admins of this event."),
     ],
-    "Rooms": [
-        ("Room name", True, 22, "Must be unique. The Schedule refers to rooms by this name."),
-        ("Location", False, 26, None),
-        ("Video conferencing", False, 16, "Y if a team can present by video in this room."),
-    ],
-    "Teams": [
-        ("Team name", True, 24, "Must be unique. The Schedule refers to teams by this name."),
-        ("Project name", True, 28, None),
-        ("Track", False, 22, "Tracks are created from this column."),
-        ("Country", False, 10, "2-letter code, e.g. SG"),
-        ("Organisation", False, 20, None),
-        ("Team lead name", True, 20, None),
-        ("Team lead email", True, 28, None),
-        ("Presentation mode", False, 16, "In person or Video. Default In person."),
-        ("Problem statement", False, 40, None),
-        ("Solution summary", False, 40, None),
+    "Day template": [
+        ("Block", True, 10, "A name for the half-day block, e.g. AM or PM. The Availability sheet uses the same names."),
+        ("Start time", True, 11, "24-hour HH:MM. Only on the first row of each block; the rest follow on one after another."),
+        ("Item", True, 14, "Interview, Break or Calibration."),
+        ("Duration (minutes)", True, 12, None),
     ],
     "Judges": [
         ("Name", True, 22, None),
-        ("Email", True, 30, "Must be unique. The Schedule refers to judges by email."),
+        ("Email", True, 30, "Must be unique. The Availability sheet refers to judges by email."),
         ("Phone", False, 16, "With country code, e.g. +6591234567"),
         ("Organisation", False, 20, None),
         ("Designation", False, 22, None),
         ("Tier", False, 8, "Optional label: L1, L2, L3, L4, PS or V."),
     ],
-    "Schedule": [
-        ("Date", True, 13, "YYYY-MM-DD, or an Excel date. 12/10/2026 style dates are refused: they read differently in different countries."),
-        ("Start time", True, 11, "24-hour HH:MM, in the event's timezone."),
-        ("End time", True, 11, "24-hour HH:MM."),
-        ("Room", True, 14, "Exactly as on the Rooms sheet."),
-        ("Team name", True, 22, "Exactly as on the Teams sheet. Each team appears once."),
-        ("Judge 1 email", True, 28, "Exactly as on the Judges sheet."),
-        ("Judge 2 email", False, 28, None),
-        ("Judge 3 email", False, 28, None),
-        ("Judge 4 email", False, 28, None),
-        ("Judge 5 email", False, 28, None),
+    "Candidates": [
+        ("Candidate name", True, 26, "Must be unique. Optional sheet: candidates can also be added in the app later."),
+        ("Email", False, 30, None),
+        ("Phone", False, 16, None),
+        ("Role applied for", False, 26, None),
+        ("Notes", False, 40, None),
     ],
     "Criteria": [
         ("Criterion", True, 44, "A category (leave Parent blank) or a row inside one."),
@@ -82,36 +67,78 @@ SHEETS = {
 }
 
 README = [
-    ("Event setup workbook", "title"),
-    ("Fill in every sheet and upload this file under Upload setup. The upload checks everything first, shows you what it will create, and only builds the event when you confirm. It then opens the Command Centre.", None),
+    ("Interview setup workbook", "title"),
+    ("Fill in the sheets and upload this file under Upload setup. The upload checks everything first and shows the schedule it will build. Nothing is saved until you confirm.", None),
+    ("", None),
+    ("How it works", "head"),
+    ("Day template describes one day: each block (AM, PM) is a run of interviews, breaks and calibration with their lengths. Every judging day uses it.", None),
+    ("Availability says which judges can sit which block on which date. The system builds every day's slots from the template and seats each judge in the interviews they are available for.", None),
+    ("One panel interviews at a time. Interviews with fewer judges than the minimum panel size are left without a panel and shown greyed out.", None),
+    ("Candidates are placed into interview slots afterwards, on the Schedule page.", None),
+    ("", None),
+    ("Availability format (the only accepted entries)", "head"),
+    ("Yes = available for the whole block.", None),
+    ("No, or blank = not available.", None),
+    ("HH:MM-HH:MM in 24-hour time, e.g. 13:00-16:00 = available only within that window. The judge sits only the interviews that fit entirely inside it.", None),
+    ("Anything else stops the upload and is listed with the judge and column so it can be corrected.", None),
+    ("Column headers on the Availability sheet are the date and block: YYYY-MM-DD AM, YYYY-MM-DD PM. Add one column per date and block; dates with no judges simply stay empty.", None),
     ("", None),
     ("How to fill it in", "head"),
     ("Dark blue header = required column. Light blue header = optional. Hover a header for notes.", None),
-    ("Yellow rows are examples. Overwrite or delete them before uploading.", None),
-    ("Keep the sheet names and column headers as they are.", None),
-    ("Dates as YYYY-MM-DD (2026-10-12). Times as 24-hour HH:MM (09:30), in the event's timezone.", None),
-    ("The Schedule refers to rooms, teams and judges by name / email exactly as written on their own sheets.", None),
-    ("", None),
-    ("Sheets", "head"),
-    ("Event: one row describing the event.", None),
-    ("Rooms: one row per judging room.", None),
-    ("Teams: one row per team. Tracks are created from the Track column.", None),
-    ("Judges: one row per judge. Email identifies the judge and must be unique.", None),
-    ("Schedule: one row per judging session. Each team appears once. The judging days are the dates used here.", None),
-    ("Criteria (optional): the scoring rubric. Leave it empty to use the standard UOB rubric.", None),
-    ("", None),
-    ("What blocks an upload", "head"),
-    ("An empty required cell; a room, team or judge on the Schedule that isn't on its own sheet; a team scheduled twice; a judge or room booked twice at overlapping times; an end time not after the start; duplicate team names or judge emails; a rubric that doesn't add up.", None),
-    ("", None),
-    ("What only warns", "head"),
-    ("A session with one judge; a video team in a room without video conferencing; a judge with more than 8 sessions in a day; teams, judges or rooms that aren't used; admin emails without a login.", None),
-    ("", None),
-    ("Uploading again", "head"),
-    ("You can upload a corrected file for the same event until the first score is entered. It replaces the whole setup.", None),
+    ("Yellow cells are examples. Overwrite or delete them before uploading.", None),
+    ("Keep the sheet names and column headers as they are. Times are 24-hour HH:MM.", None),
+    ("Candidates and Criteria are optional. With no Criteria, the standard UOB rubric is used.", None),
 ]
 
+TEMPLATE_DAY = (
+    [("AM", time(9, 0), "Interview", 20)]
+    + [("AM", None, "Interview", 20)] * 4
+    + [("AM", None, "Break", 10)]
+    + [("AM", None, "Interview", 20)] * 4
+    + [("AM", None, "Calibration", 10)]
+    + [("PM", time(14, 0), "Interview", 20)]
+    + [("PM", None, "Interview", 20)] * 4
+    + [("PM", None, "Break", 10)]
+    + [("PM", None, "Interview", 20)] * 4
+    + [("PM", None, "Calibration", 10)]
+)
 
-def build(rows_by_sheet: dict, example: bool) -> Workbook:
+
+def style_header(ws, cols):
+    for j, (header, required, width, note) in enumerate(cols, 1):
+        c = ws.cell(1, j, header + (" *" if required else ""))
+        c.font = Font(name=FONT, bold=True, color="FFFFFF")
+        c.fill = REQUIRED if required else OPTIONAL
+        c.alignment = Alignment(wrap_text=True, vertical="center")
+        c.border = RULE
+        ws.column_dimensions[c.column_letter].width = width
+        if note:
+            c.comment = Comment(note, "Template")
+    ws.freeze_panes = "A2"
+    ws.row_dimensions[1].height = 32
+
+
+def write_rows(ws, rows, example):
+    for r, values in enumerate(rows, 2):
+        for j, v in enumerate(values, 1):
+            c = ws.cell(r, j, v)
+            c.font = Font(name=FONT)
+            if example:
+                c.fill = EXAMPLE
+            if isinstance(v, time):
+                c.number_format = "hh:mm"
+
+
+def choices(ws, rng, options, strict=True):
+    dv = DataValidation(type="list", formula1='"' + ",".join(options) + '"', allow_blank=True)
+    if not strict:
+        # A dropdown for the common answers that still accepts a typed time window.
+        dv.showErrorMessage = False
+    dv.add(rng)
+    ws.add_data_validation(dv)
+
+
+def build(data: dict, example: bool) -> Workbook:
     wb = Workbook()
     readme = wb.active
     readme.title = "Read me"
@@ -121,114 +148,106 @@ def build(rows_by_sheet: dict, example: bool) -> Workbook:
         c.alignment = Alignment(wrap_text=True, vertical="top")
     readme.column_dimensions["A"].width = 120
 
-    for name, cols in SHEETS.items():
+    order = ["Event", "Day template", "Judges", "Availability", "Candidates", "Criteria"]
+    for name in order:
         ws = wb.create_sheet(name)
-        for j, (header, required, width, note) in enumerate(cols, 1):
-            c = ws.cell(1, j, header + (" *" if required else ""))
-            c.font = Font(name=FONT, bold=True, color="FFFFFF")
-            c.fill = REQUIRED if required else OPTIONAL
-            c.alignment = Alignment(wrap_text=True, vertical="center")
-            c.border = RULE
-            ws.column_dimensions[c.column_letter].width = width
-            if note:
-                c.comment = Comment(note, "Template")
-        for r, values in enumerate(rows_by_sheet.get(name, []), 2):
-            for j, v in enumerate(values, 1):
-                c = ws.cell(r, j, v)
-                c.font = Font(name=FONT)
-                if example:
-                    c.fill = EXAMPLE
-                if isinstance(v, date):
-                    c.number_format = "yyyy-mm-dd"
-                elif isinstance(v, time):
-                    c.number_format = "hh:mm"
-        ws.freeze_panes = "A2"
-        ws.row_dimensions[1].height = 32
-
-        def choices(col: str, options: list[str]):
-            dv = DataValidation(type="list", formula1='"' + ",".join(options) + '"', allow_blank=True)
-            dv.add(f"{col}2:{col}2000")
-            ws.add_data_validation(dv)
-
-        if name == "Rooms":
-            choices("C", ["Y", "N"])
-        if name == "Teams":
-            choices("H", ["In person", "Video"])
+        if name == "Availability":
+            cols = [("Judge email", True, 30, "Exactly as on the Judges sheet.")]
+            cols += [(h, False, 15, "Yes, No, or a window like 13:00-16:00") for h in data["availability_columns"]]
+            style_header(ws, cols)
+            # Date columns are part of the data, not fixed: style them like required headers.
+            for j in range(2, len(cols) + 1):
+                ws.cell(1, j).fill = REQUIRED
+            write_rows(ws, data["availability"], example)
+            last = ws.cell(1, len(cols)).column_letter
+            choices(ws, f"B2:{last}500", ["Yes", "No"], strict=False)
+            continue
+        style_header(ws, FIXED_SHEETS[name])
+        write_rows(ws, data.get(name, []), example)
+        if name == "Day template":
+            choices(ws, "C2:C200", ["Interview", "Break", "Calibration"])
         if name == "Judges":
-            choices("F", ["L1", "L2", "L3", "L4", "PS", "V"])
+            choices(ws, "F2:F500", ["L1", "L2", "L3", "L4", "PS", "V"])
         if name == "Criteria":
-            choices("E", ["Y", "N"])
+            choices(ws, "E2:E200", ["Y", "N"])
     return wb
 
 
-TEMPLATE_ROWS = {
-    "Event": [("UOB Innovation Challenge 2026", "UOB Plaza 1, Singapore", "Asia/Singapore", 25, "admin@example.com")],
-    "Rooms": [("Room A", "Level 12", "Y"), ("Room B", "Level 12", "N")],
-    "Teams": [
-        ("Team Alpha", "Smart Onboarding", "Customer Experience", "SG", "UOB Singapore", "Tan Wei Ling", "weiling@example.com", "In person",
-         "Account opening takes 3 days.", "Guided digital onboarding with document OCR."),
-        ("Team Beta", "Fraud Radar", "Risk", "MY", "UOB Malaysia", "Ahmad Faiz", "faiz@example.com", "Video",
-         "Card fraud is detected too late.", "Real-time anomaly scoring on transactions."),
-    ],
-    "Judges": [
-        ("Lim Chee Keong", "cheekeong@example.com", "+6591234567", "UOB", "Managing Director", "L2"),
-        ("Priya Nair", "priya@example.com", "+6598765432", "UOB", "Executive Director", "L3"),
-        ("Daniel Wong", "daniel@example.com", "+6590001111", "UOB", "Senior Engineer", "PS"),
-    ],
-    "Schedule": [
-        (date(2026, 10, 12), time(9, 30), time(9, 55), "Room A", "Team Alpha", "cheekeong@example.com", "priya@example.com", "daniel@example.com"),
-        (date(2026, 10, 13), time(9, 30), time(9, 55), "Room B", "Team Beta", "cheekeong@example.com", "priya@example.com", "daniel@example.com"),
-    ],
-}
-
-
-def sample_rows() -> dict:
-    """12 teams over 2 days, 2 rooms, 6 judges, panels of 3, 25-minute sessions."""
-    tracks = ["Customer Experience", "Risk", "Operations"]
-    countries = ["SG", "MY", "TH", "ID", "VN", "CN"]
-    teams = []
-    for i in range(12):
-        n = i + 1
-        teams.append((
-            f"Team {n:02d}", f"Project {n:02d}", tracks[i % 3], countries[i % 6], "UOB",
-            f"Lead {n:02d}", f"lead{n:02d}@example.com", "Video" if n in (4, 9) else "In person",
-            f"Problem statement for team {n:02d}.", f"Solution summary for team {n:02d}.",
-        ))
-    judges = [
-        ("Judge Ang", "ang@example.com", "+6590000001", "UOB", "Managing Director", "L2"),
-        ("Judge Bala", "bala@example.com", "+6590000002", "UOB", "Executive Director", "L3"),
-        ("Judge Chen", "chen@example.com", "+6590000003", "UOB", "Senior Engineer", "PS"),
-        ("Judge Devi", "devi@example.com", "+6590000004", "UOB", "Managing Director", "L2"),
-        ("Judge Eng", "eng@example.com", "+6590000005", "UOB", "Executive Director", "L3"),
-        ("Judge Farah", "farah@example.com", "+6590000006", "UOB", "Senior Engineer", "PS"),
-    ]
-    panels = {"Room A": ["ang@example.com", "bala@example.com", "chen@example.com"],
-              "Room B": ["devi@example.com", "eng@example.com", "farah@example.com"]}
-    schedule = []
-    days = [date(2026, 10, 12), date(2026, 10, 13)]
-    t = 0
-    for day in days:
-        for slot in range(3):
-            start = datetime.combine(day, time(9, 30)) + timedelta(minutes=30 * slot)
-            end = start + timedelta(minutes=25)
-            for room in ("Room A", "Room B"):
-                team = teams[t][0]
-                t += 1
-                schedule.append((day, start.time(), end.time(), room, team, *panels[room]))
+def template_data() -> dict:
+    cols = ["2026-10-19 AM", "2026-10-19 PM", "2026-10-20 AM", "2026-10-20 PM"]
     return {
-        "Event": [("Sample Day-Based Event", "UOB Plaza 1", "Asia/Singapore", 25, "")],
-        "Rooms": [("Room A", "Level 12", "Y"), ("Room B", "Level 12", "Y")],
-        "Teams": teams,
-        "Judges": judges,
-        "Schedule": schedule,
+        "Event": [("UOB Interviews October 2026", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "admin@example.com")],
+        "Day template": TEMPLATE_DAY,
+        "Judges": [
+            ("Dean Tan", "dean@example.com", "+6591234567", "UOB", "Managing Director", "L2"),
+            ("Lawrance Lim", "lawrance@example.com", "+6598765432", "UOB", "Executive Director", "L3"),
+            ("Choon Hin Ong", "choonhin@example.com", "+6590001111", "UOB", "Director", "L3"),
+        ],
+        "availability_columns": cols,
+        "availability": [
+            ("dean@example.com", "Yes", "Yes", "No", "No"),
+            ("lawrance@example.com", "Yes", "13:00-16:00", "No", "Yes"),
+            ("choonhin@example.com", "Yes", "Yes", "Yes", "Yes"),
+        ],
+        "Candidates": [
+            ("Candidate One", "c1@example.com", "+6580000001", "Analyst", None),
+            ("Candidate Two", "c2@example.com", "+6580000002", "Analyst", None),
+        ],
+    }
+
+
+def sample_data() -> dict:
+    """Ten weekdays from 19 Oct 2026, nine judges, gaps, and partial windows."""
+    judges = [
+        ("Jack", "jack@example.com"), ("Eric", "eric@example.com"), ("Lay Wah", "laywah@example.com"),
+        ("Yung Chee", "yungchee@example.com"), ("Lawrance", "lawrance@example.com"),
+        ("Choon Hin", "choonhin@example.com"), ("Hendra", "hendra@example.com"),
+        ("Wei Wei", "weiwei@example.com"), ("Dean", "dean@example.com"),
+    ]
+    days, d = [], date(2026, 10, 19)
+    while len(days) < 10:
+        if d.weekday() < 5:
+            days.append(d)
+        d += timedelta(days=1)
+    cols = [f"{day.isoformat()} {b}" for day in days for b in ("AM", "PM")]
+
+    # Who sits when: a few judges per day, a blank day (day 4), and partial windows.
+    plan = {
+        0: {"jack": "Yes", "hendra": "Yes", "weiwei": "Yes"},
+        1: {"jack": "Yes", "dean": "Yes", "lawrance": "13:00-16:00"},
+        2: {"eric": "Yes", "laywah": "Yes", "yungchee": "Yes"},
+        3: {"eric": "Yes", "laywah": "Yes", "choonhin": "14:00-15:00"},
+        4: {"dean": "Yes", "lawrance": "Yes", "choonhin": "Yes"},
+        5: {"dean": "Yes", "lawrance": "Yes", "choonhin": "Yes"},
+        8: {"jack": "Yes", "eric": "Yes"},
+        9: {"jack": "Yes", "eric": "Yes", "hendra": "13:00-16:00"},
+        12: {"yungchee": "Yes", "weiwei": "Yes", "laywah": "Yes"},
+        13: {"yungchee": "Yes", "weiwei": "Yes", "laywah": "Yes"},
+        16: {"dean": "Yes", "jack": "Yes", "choonhin": "Yes"},
+        17: {"dean": "Yes", "jack": "Yes"},
+        18: {"hendra": "Yes", "weiwei": "Yes", "eric": "Yes"},
+        19: {"hendra": "Yes", "weiwei": "09:00-10:00", "eric": "Yes"},
+    }
+    availability = []
+    for name, email in judges:
+        key = email.split("@")[0]
+        availability.append((email, *[plan.get(i, {}).get(key, "No") for i in range(len(cols))]))
+
+    return {
+        "Event": [("Sample Interview Fortnight", "UOB Plaza 1", "Asia/Singapore", 2, "")],
+        "Day template": TEMPLATE_DAY,
+        "Judges": [(n, e, f"+659000{i:04d}", "UOB", "Panel member", "L3") for i, (n, e) in enumerate(judges, 1)],
+        "availability_columns": cols,
+        "availability": availability,
+        "Candidates": [(f"Candidate {i:03d}", f"cand{i:03d}@example.com", None, "Graduate Associate", None) for i in range(1, 41)],
     }
 
 
 if __name__ == "__main__":
     out = ROOT / "apps/web/public/templates/event-setup-template.xlsx"
     out.parent.mkdir(parents=True, exist_ok=True)
-    build(TEMPLATE_ROWS, example=True).save(out)
+    build(template_data(), example=True).save(out)
     print("wrote", out.relative_to(ROOT))
     sample = ROOT / "tools/setup-workbook/sample-event.xlsx"
-    build(sample_rows(), example=False).save(sample)
+    build(sample_data(), example=False).save(sample)
     print("wrote", sample.relative_to(ROOT))
