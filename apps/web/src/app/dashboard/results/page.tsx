@@ -59,8 +59,8 @@ export default function ResultsPage() {
         <div className="flex flex-wrap justify-end gap-2 shrink-0">
           {date !== 'ALL' && (
             <>
-              <a href={`/report/${eventId}/day/${date}`} target="_blank" rel="noreferrer"
-                className="px-3 py-2 rounded-lg border border-dark-500 text-sm text-slate-200 hover:border-accent/60">Reports for this day (PDF)</a>
+              {records.some((r) => finalDecision(r)) && <a href={`/report/${eventId}/day/${date}`} target="_blank" rel="noreferrer"
+                className="px-3 py-2 rounded-lg border border-dark-500 text-sm text-slate-200 hover:border-accent/60">Reports for this day (PDF)</a>}
               <button type="button" disabled={!!busy} onClick={() => download(date)}
                 className="px-3 py-2 rounded-lg border border-dark-500 text-sm text-slate-200 hover:border-accent/60 disabled:opacity-40">
                 {busy === date ? 'Preparing…' : 'Download this day (Excel)'}
@@ -113,7 +113,7 @@ export default function ResultsPage() {
                       {finalDecision(r) ? <span className="line-clamp-2">{r.decision?.feedback}</span> : <span className="text-slate-500">{r.state === 'READY' ? 'Ready for decision' : `Awaiting scores (${r.submitted}/${r.expected})`}</span>}
                     </td>
                     <td className="px-4 py-2 text-right">
-                      <a href={`/report/${eventId}/${r.sessionId}`} target="_blank" rel="noreferrer" className="text-xs text-violet-300 hover:text-white whitespace-nowrap">Report ↗</a>
+                      {finalDecision(r) && <a href={`/report/${eventId}/${r.sessionId}`} target="_blank" rel="noreferrer" className="text-xs text-violet-300 hover:text-white whitespace-nowrap">Report ↗</a>}
                     </td>
                   </tr>
                 ))}

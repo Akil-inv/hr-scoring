@@ -133,7 +133,9 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
           <div>
             <h2 className="text-lg font-semibold text-white">{r.name}</h2>
             <p className="text-sm text-slate-400">{dayLabel(r.date)} · {r.start}–{r.end} · {r.judges.filter((j) => !j.excused).map((j) => j.name).join(', ')}</p>
-            <a href={`/report/${eventId}/${r.sessionId}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-violet-300 hover:text-white">Open report (PDF) ↗</a>
+            {finalDecision(r)
+              ? <a href={`/report/${eventId}/${r.sessionId}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-violet-300 hover:text-white">Open report (PDF) ↗</a>
+              : <span className="mt-1 inline-block text-xs text-slate-500">Report available once the final decision is submitted</span>}
           </div>
           <div className="text-right">
             <p className="text-3xl font-semibold text-white tabular-nums">{r.average ?? '—'}<span className="text-base text-slate-500"> / {data.maxTotal}</span></p>

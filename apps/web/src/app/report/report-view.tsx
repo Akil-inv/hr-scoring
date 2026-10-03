@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { CandidateReport, REPORT_CSS } from '@/components/candidate-report';
-import { CandidateRecord, ReviewData } from '@/lib/review';
+import { CandidateRecord, ReviewData, finalDecision } from '@/lib/review';
 
 /**
  * Loads the review data and renders one or more candidate reports, with a
@@ -26,9 +26,14 @@ export default function ReportView({ eventId, sessionId, date }: { eventId: stri
       .catch((e) => setError(e.message));
   }, [eventId, date, token]);
 
-  const records: CandidateRecord[] = !data ? [] : sessionId
+  // Reports exist only for records HR has finalised.
+  const records: CandidateRecord[] = !data ? [] : (sessionId
     ? data.records.filter((r) => r.sessionId === sessionId)
-    : data.records.filter((r) => !date || r.date === date).sort((a, b) => a.start.localeCompare(b.start));
+    : data.records.filter((r) => !date || r.date === date).sort((a, b) => a.start.localeCompare(b.start))
+  ).filter((r) => finalDecision(r));
+  const empty = sessionId
+    ? 'This report is available once HR submits the final decision.'
+    : 'No candidates on this day have a final HR decision yet.';
 
   useEffect(() => {
     if (records.length === 1) document.title = `${records[0].name} — assessment report`;
@@ -39,7 +44,7 @@ export default function ReportView({ eventId, sessionId, date }: { eventId: stri
     <>
       <style dangerouslySetInnerHTML={{ __html: REPORT_CSS }} />
       <div className="rp-toolbar">
-        {error ? <span>{error}</span> : !data ? <span>Loading…</span> : records.length === 0 ? <span>Nothing to show.</span> : (
+        {error ? <span>{error}</span> : !data ? <span>Loading…</span> : records.length === 0 ? <span>{empty}</span> : (
           <>
             <span>{records.length === 1 ? records[0].name : `${records.length} candidates`}</span>
             <button type="button" onClick={() => window.print()}>Save as PDF</button>
