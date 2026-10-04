@@ -173,6 +173,9 @@ export class JudgePortalController {
     @Query('event') eventId: string,
     @Body() body: { messageId: string },
   ) {
+    // Without an id, updateMany's `id: undefined` matches every message for
+    // the judge: refuse rather than dismiss them all.
+    if (!body?.messageId) throw new BadRequestException('messageId is required');
     const { judge } = await this.service.resolve(token, eventId);
     await this.prisma.judgeMessage.updateMany({
       where: { id: body.messageId, judgeId: judge.id },

@@ -37,6 +37,14 @@ async function bootstrap() {
   app.use(json({ limit: '1mb' }));
   app.use(urlencoded({ limit: '1mb', extended: true }));
 
+  // Express 5 leaves req.body undefined when a request has no body (Express 4
+  // gave {}). Handlers read fields straight off it, so a body-less POST would
+  // throw and answer 500. Restore the old shape once, for every route.
+  app.use((req: any, _res: any, next: () => void) => {
+    if (req.body === undefined) req.body = {};
+    next();
+  });
+
   /**
    * CORS.
    *

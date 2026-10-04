@@ -10,9 +10,6 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
 
   /**
    * Development-only proxy for the API's REST routes.

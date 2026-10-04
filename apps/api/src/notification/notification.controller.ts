@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
@@ -21,6 +21,7 @@ export class NotificationController {
 
   @Post('send-batch')
   async sendBatch(@Body() body: any) {
+    if (!Array.isArray(body?.judges)) throw new BadRequestException('judges must be a list');
     const results: any[] = [];
     for (const judge of body.judges) {
       const entry: any = { judgeId: judge.judgeId, judgeName: judge.judgeName, email: null, sms: null };

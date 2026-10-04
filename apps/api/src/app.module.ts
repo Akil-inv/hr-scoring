@@ -55,8 +55,15 @@ import { GqlThrottlerGuard } from './common/gql-throttler.guard';
       sortSchema: true,
       // On in development, off in production. Introspection publishes the whole
       // schema, which is a map of the API for anyone who asks for it.
-      playground: process.env.NODE_ENV !== 'production',
+      // GraphiQL replaces the retired GraphQL Playground (whose plugin only
+      // supports Apollo Server 4). Off in production, like introspection.
+      playground: false,
+      graphiql: process.env.NODE_ENV !== 'production',
       introspection: process.env.NODE_ENV !== 'production',
+      // Apollo Server 5 answers HTTP 400 when a variable has the wrong type;
+      // 4 answered 200 with the error in the body. Two pages read responses
+      // by hand, so keep the old status.
+      status400ForVariableCoercionErrors: false,
       subscriptions: { 'graphql-ws': true },
       /**
        * What a caller sees when something goes wrong.
