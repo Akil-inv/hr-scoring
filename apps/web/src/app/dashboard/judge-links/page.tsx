@@ -5,6 +5,7 @@ import { EVENTS_QUERY } from '@/lib/queries';
 import { useAuthStore } from '@/lib/auth-store';
 import { createClient } from '@/lib/graphql-client';
 import { useEventId } from '@/lib/event-store';
+import DayLinks from '@/components/day-links';
 
 const JUDGE_LINKS_QUERY = `query JudgeLinks($eventId: String!) { judgeLinks(eventId: $eventId) { judgeId name email phone token link sessionCount } }`;
 
@@ -16,7 +17,18 @@ type NotifConfig = {
   configured: boolean;
 };
 
+/** Interview events get one link per judge per day; wizard events keep one link per judge. */
 export default function JudgeLinksPage() {
+  const { data: evData } = useQuery<any>(EVENTS_QUERY);
+  const selectedEventId = useEventId();
+  const token = useAuthStore((s) => s.token);
+  const ev = evData?.events?.find((e: any) => e.id === selectedEventId) ?? evData?.events?.[0];
+  if (!ev) return <p className="text-sm text-slate-400">Loading…</p>;
+  if (ev.setupMode === 'UPLOAD') return <DayLinks key={ev.id} eventId={ev.id} eventName={ev.name} token={token} />;
+  return <WizardJudgeLinksPage />;
+}
+
+function WizardJudgeLinksPage() {
   const { data: evData } = useQuery<any>(EVENTS_QUERY);
   const selectedEventId = useEventId();
   const currentEvent =

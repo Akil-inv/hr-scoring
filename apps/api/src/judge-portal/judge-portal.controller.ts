@@ -23,7 +23,7 @@ export class JudgePortalController {
   @Public()
   @Get(':token/scorecards')
   async getScorecards(@Param('token') token: string, @Query('event') eventId: string) {
-    const judge = await this.service.getJudgeByToken(token, eventId);
+    const { judge, scope } = await this.service.resolve(token, eventId);
     // Sessions this judge has stepped out of. Their scorecards are excluded so
     // the portal does not keep asking for a score they are excused from.
     const breaks = await this.prisma.sessionJudge.findMany({
@@ -32,7 +32,8 @@ export class JudgePortalController {
     });
     const onBreak = new Set(breaks.map(b => b.sessionId));
 
-    const scorecards = await this.prisma.scorecard.findMany({
+    // A day link sees only that day's interviews.
+    const scorecards = (await this.prisma.scorecard.findMany({
       where: { judgeId: judge.id, eventId },
       include: {
         judge: true, team: true,
@@ -40,7 +41,7 @@ export class JudgePortalController {
         session: { include: { room: true, timeSlot: true } },
       },
       orderBy: { session: { scheduledStart: 'asc' } },
-    });
+    })).filter((sc) => this.service.inScope(scope, sc.session));
 
     // ─── Auto-create criterion scores for scorecards that have none ───
     // This ensures the judge sees sliders on first load, not just after saving a draft
@@ -172,7 +173,7 @@ export class JudgePortalController {
     @Query('event') eventId: string,
     @Body() body: { messageId: string },
   ) {
-    const judge = await this.service.getJudgeByToken(token, eventId);
+    const { judge } = await this.service.resolve(token, eventId);
     await this.prisma.judgeMessage.updateMany({
       where: { id: body.messageId, judgeId: judge.id },
       data: { dismissedAt: new Date() },
@@ -195,7 +196,8 @@ export class JudgePortalController {
     @Query('event') eventId: string,
     @Body() body: { sessionId: string; onBreak: boolean },
   ) {
-    const judge = await this.service.getJudgeByToken(token, eventId);
+    const { judge, scope } = await this.service.resolve(token, eventId);
+    await this.service.assertSessionInScope(scope, body.sessionId);
 
     // The two IG seats. The PS is excluded: there is one per session and no
     // cover for them at all.
@@ -290,10 +292,11 @@ export class JudgePortalController {
     @Query('event') eventId: string,
     @Body() body: { scorecardId: string; flagged: boolean },
   ) {
-    const judge = await this.service.getJudgeByToken(token, eventId);
+    const { judge, scope } = await this.service.resolve(token, eventId);
     const scorecard = await this.prisma.scorecard.findUnique({ where: { id: body.scorecardId } });
     if (!scorecard) throw new NotFoundException('Scorecard not found');
     if (scorecard.judgeId !== judge.id) throw new ForbiddenException('This scorecard does not belong to you');
+    await this.service.assertSessionInScope(scope, scorecard.sessionId);
 
     await this.prisma.scorecard.update({
       where: { id: body.scorecardId },
@@ -317,7 +320,11 @@ export class JudgePortalController {
       submit?: boolean;
     },
   ) {
-    const judge = await this.service.getJudgeByToken(token, eventId);
+    const { judge, scope } = await this.service.resolve(token, eventId);
+    if (scope.kind === 'DAY') {
+      const sc = await this.prisma.scorecard.findUnique({ where: { id: String(body.scorecardId ?? '') }, select: { sessionId: true } }).catch(() => null);
+      if (sc) await this.service.assertSessionInScope(scope, sc.sessionId);
+    }
 
     // Scoring itself lives in ScoringCoreService, shared with the GraphQL path.
     // This endpoint establishes who the judge is and hands over; it does not

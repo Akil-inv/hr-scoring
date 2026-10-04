@@ -117,7 +117,11 @@ export default function JudgePortalPage() {
         fetch(`${apiUrl}/api/judge-portal/${token}?event=${eventId}`),
         fetch(`${apiUrl}/api/judge-portal/${token}/scorecards?event=${eventId}`),
       ]);
-      if (!schedRes.ok) throw new Error('Invalid link');
+      if (!schedRes.ok) {
+        // A day link that was closed or replaced says why.
+        const body = await schedRes.json().catch(() => ({}));
+        throw new Error(typeof body?.message === 'string' ? body.message : 'This link is not valid.');
+      }
       const schedData = await schedRes.json();
       const scData = scRes.ok ? await scRes.json() : [];
       setSchedule(schedData);
@@ -457,8 +461,11 @@ export default function JudgePortalPage() {
     </main>
   );
   if (error) return (
-    <main className="min-h-screen bg-[#f4f6fa] flex items-center justify-center">
-      <p className="text-red-400 text-xl font-semibold">Invalid Link</p>
+    <main className="min-h-screen bg-[#f4f6fa] flex items-center justify-center p-6">
+      <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center">
+        <p className="text-lg font-semibold text-slate-900">{error}</p>
+        <p className="mt-2 text-sm text-slate-500">Each judging link works for one day only.</p>
+      </div>
     </main>
   );
 
@@ -493,7 +500,11 @@ export default function JudgePortalPage() {
               </div>
               <div className="min-w-0">
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{judge?.name}</h1>
-                <p className="text-sm sm:text-base text-slate-600 truncate">{judge?.judgeType} Judge · {judge?.organisation}</p>
+                <p className="text-sm sm:text-base text-slate-600 truncate">
+                  {schedule?.linkDate
+                    ? `Your interviews on ${new Date(`${schedule.linkDate}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}`
+                    : `${judge?.judgeType} Judge · ${judge?.organisation}`}
+                </p>
               </div>
             </div>
             {lastUpdated && (
