@@ -93,8 +93,10 @@ step "backup"
 BACKUP=""
 if dc ps --status running postgres 2>/dev/null | grep -q postgres; then
   mkdir -p "$BACKUPS"
+  chmod 700 "$BACKUPS"
   BACKUP="$BACKUPS/hr-scoring_$(date +%Y%m%d_%H%M%S).sql"
-  if dc exec -T postgres pg_dump -U hackathon hackathon > "$BACKUP" 2>/dev/null && [ -s "$BACKUP" ]; then
+  # Only root may read backups.
+  if (umask 077; dc exec -T postgres pg_dump -U hackathon hackathon > "$BACKUP" 2>/dev/null) && [ -s "$BACKUP" ]; then
     ok "backed up ($(du -h "$BACKUP" | cut -f1)) → $BACKUP"
     ls -1t "$BACKUPS"/hr-scoring_*.sql 2>/dev/null | tail -n +11 | xargs -r rm -f
   else
