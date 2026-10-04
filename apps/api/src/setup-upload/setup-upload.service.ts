@@ -299,7 +299,7 @@ export class SetupUploadService {
     const placed = await this.prisma.judgingSession.count({ where: { eventId } });
     if (placed > 0) {
       return {
-        error: `${placed} candidate${placed === 1 ? ' is' : 's are'} already placed in "${event.name}", so its setup can no longer be replaced. Change panels on the Schedule page instead.`,
+        error: `${placed} candidate${placed === 1 ? ' is' : 's are'} already placed in "${event.name}", so its setup can no longer be replaced. Untick Replace to set this file up as a new event, or change panels on the Schedule page.`,
       };
     }
     return { name: event.name };
