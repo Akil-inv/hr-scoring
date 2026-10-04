@@ -22,7 +22,8 @@ export default function JudgeLinksPage() {
   const { data: evData } = useQuery<any>(EVENTS_QUERY);
   const selectedEventId = useEventId();
   const token = useAuthStore((s) => s.token);
-  const ev = evData?.events?.find((e: any) => e.id === selectedEventId) ?? evData?.events?.[0];
+  const ev = evData?.events?.find((e: any) => e.id === selectedEventId);
+  if (!selectedEventId) return <p className="text-sm text-slate-400">Choose an event in the sidebar.</p>;
   if (!ev) return <p className="text-sm text-slate-400">Loading…</p>;
   if (ev.setupMode === 'UPLOAD') return <DayLinks key={ev.id} eventId={ev.id} eventName={ev.name} token={token} />;
   return <WizardJudgeLinksPage />;
@@ -32,7 +33,7 @@ function WizardJudgeLinksPage() {
   const { data: evData } = useQuery<any>(EVENTS_QUERY);
   const selectedEventId = useEventId();
   const currentEvent =
-    evData?.events?.find((e: any) => e.id === selectedEventId) ?? evData?.events?.[0];
+    evData?.events?.find((e: any) => e.id === selectedEventId);
   const eventId = currentEvent?.id;
   const eventName = currentEvent?.name || 'Hackathon';
   const token = useAuthStore((s) => s.token);
@@ -104,6 +105,8 @@ function WizardJudgeLinksPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({
+          eventId,
+          judgeId: link.judgeId,
           judgeName: link.name,
           judgeEmail: link.email,
           judgePhone: link.phone || '',

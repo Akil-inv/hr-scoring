@@ -51,31 +51,15 @@ export class UsersService {
     }));
   }
 
-  async assignToEvent(userId: string, eventId: string, role: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
-    return this.prisma.eventUser.upsert({
-      where: { userId_eventId: { userId, eventId } },
-      create: { userId, eventId, role: role as any },
-      update: { role: role as any },
-    });
-  }
-
-  async removeFromEvent(userId: string, eventId: string) {
-    return this.prisma.eventUser.delete({ where: { userId_eventId: { userId, eventId } } });
-  }
-
+  /** The events a person is on (super admins: all), newest first, with their role on each. */
   async getMyEvents(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (user?.role === 'SUPER_ADMIN') {
-      const events = await this.prisma.event.findMany({ orderBy: { createdAt: 'desc' }, select: { id: true, name: true, status: true, startDate: true, endDate: true } });
-      return events.map((e: any) => ({ ...e, role: 'ADMIN' }));
-    }
-    const eventUsers = await this.prisma.eventUser.findMany({
-      where: { userId },
-      include: { event: { select: { id: true, name: true, status: true, startDate: true, endDate: true } } },
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    const where = user?.role === 'SUPER_ADMIN' ? { deletedAt: null } : { deletedAt: null, eventUsers: { some: { userId } } };
+    const events = await this.prisma.event.findMany({
+      where,
+      orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
+      include: { eventUsers: { where: { userId }, select: { role: true } } },
     });
-    return eventUsers.map((eu: any) => ({ ...eu.event, role: eu.role }));
+    return events.map(({ eventUsers, ...e }: any) => ({ ...e, role: eventUsers[0]?.role ?? 'ADMIN' }));
   }
-
 }

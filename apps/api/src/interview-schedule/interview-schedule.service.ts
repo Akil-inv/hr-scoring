@@ -369,21 +369,6 @@ export class InterviewScheduleService {
     }, { timeout: 60_000, maxWait: 10_000 });
   }
 
-  // ─── Access ──────────────────────────────────────────────────────────────
-
-  /**
-   * REST calls skip the GraphQL event-scope guard, so check it here: a user
-   * assigned to some events may only touch those. Super admins see all.
-   */
-  async assertAccess(user: { sub?: string; role?: string } | undefined, eventId: string, roles: string[]) {
-    if (!user?.sub) throw new ForbiddenException('Sign in first.');
-    if (user.role === 'SUPER_ADMIN') return;
-    if (!roles.includes(user.role ?? '')) throw new ForbiddenException('Your role cannot do this.');
-    const assignments = await this.prisma.eventUser.count({ where: { userId: user.sub } });
-    if (assignments === 0) return;
-    const assigned = await this.prisma.eventUser.findUnique({ where: { userId_eventId: { userId: user.sub, eventId } } });
-    if (!assigned) throw new ForbiddenException('You are not assigned to this event. Ask a super admin to add you.');
-  }
 
   // ─── Locking ─────────────────────────────────────────────────────────────
 

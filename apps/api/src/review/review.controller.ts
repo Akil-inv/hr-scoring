@@ -3,6 +3,7 @@ import { Response } from 'express';
 import { ReviewService } from './review.service';
 import { DocumentPasswordService } from '../documents/document-password.service';
 import { buildResultsWorkbook, resultsFileName, resultsOrder } from './review-export';
+import { EventAccessService, EventCheckedInHandler, Ref } from '../auth/event-access';
 
 const ADMINS = ['ADMIN'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -26,8 +27,16 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
  * download is recorded in the audit log.
  */
 @Controller('api/review')
+@EventCheckedInHandler()
 export class ReviewController {
-  constructor(private service: ReviewService, private documents: DocumentPasswordService) {}
+  constructor(private service: ReviewService, private documents: DocumentPasswordService, private access: EventAccessService) {}
+
+  /** Admins of the event only; a session named in the path must be in that event. */
+  private check(req: any, eventId: string, sessionId?: string, extra: Ref[] = []) {
+    const refs: Ref[] = sessionId ? [{ kind: 'session', id: sessionId }, ...extra] : extra;
+    // POSTs change the event (decisions, reopening, closing): not once it is done.
+    return this.access.assert(req.user, eventId, ADMINS, refs, { write: req.method !== 'GET' });
+  }
 
   private date(d?: string): string | undefined {
     if (!d) return undefined;
@@ -36,7 +45,7 @@ export class ReviewController {
 
   @Get(':eventId')
   async review(@Param('eventId') eventId: string, @Query('date') date: string | undefined, @Req() req: any) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId);
     return this.service.load(eventId, this.date(date));
   }
 
@@ -47,20 +56,20 @@ export class ReviewController {
     @Body() body: { decision?: string | null; feedback?: string | null; submit?: boolean },
     @Req() req: any,
   ) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId, sessionId);
     return this.service.decide(eventId, sessionId, body ?? {}, req.user.sub);
   }
 
   @Get(':eventId/results')
   async results(@Param('eventId') eventId: string, @Query('date') date: string | undefined, @Req() req: any) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId);
     const data = await this.service.load(eventId, this.date(date));
     return { ...data, records: resultsOrder(data.records) };
   }
 
   @Get(':eventId/reports')
   async reports(@Param('eventId') eventId: string, @Query('date') date: string | undefined, @Req() req: any, @Res() res: Response) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId);
     const day = this.date(date);
     if (!day) throw new BadRequestException('Choose a day (date=YYYY-MM-DD).');
     const out = await this.service.dayReports(eventId, day,
@@ -76,7 +85,7 @@ export class ReviewController {
     @Query('view') view: string | undefined, @Query('revision') revision: string | undefined,
     @Req() req: any, @Res() res: Response,
   ) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId, sessionId);
     const rev = revision && /^\d+$/.test(revision) ? Number(revision) : undefined;
     const out = await this.service.report(eventId, sessionId, rev);
     const pdf = await this.documents.pdf(req.user.sub, out.pdf, 'report', eventId, { sessionId, revision: rev ?? 'current' });
@@ -90,13 +99,13 @@ export class ReviewController {
     @Param('eventId') eventId: string, @Param('sessionId') sessionId: string,
     @Body() body: { reason?: string | null; judgeIds?: string[] | null }, @Req() req: any,
   ) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId, sessionId, (Array.isArray(body?.judgeIds) ? body!.judgeIds : []).map((id) => ({ kind: 'judge' as const, id: String(id) })));
     return this.service.reopen(eventId, sessionId, body ?? {}, req.user.sub);
   }
 
   @Post(':eventId/days/:date/close')
   async closeDay(@Param('eventId') eventId: string, @Param('date') date: string, @Req() req: any) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId);
     const day = this.date(date);
     if (!day) throw new BadRequestException('Choose a day (YYYY-MM-DD).');
     return this.service.closeDay(eventId, day, req.user.sub);
@@ -104,7 +113,7 @@ export class ReviewController {
 
   @Post(':eventId/close')
   async closeEvent(@Param('eventId') eventId: string, @Req() req: any) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId);
     return this.service.closeEvent(eventId, req.user.sub);
   }
 
@@ -115,7 +124,7 @@ export class ReviewController {
     @Body() body: { decision?: string | null; feedback?: string | null },
     @Req() req: any, @Res() res: Response,
   ) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId, sessionId);
     const out = await this.service.previewReport(eventId, sessionId, body ?? {}, req.user.sub);
     const pdf = await this.documents.pdf(req.user.sub, out.pdf, 'report-preview', eventId, { sessionId });
     res.setHeader('Content-Type', 'application/pdf');
@@ -125,7 +134,7 @@ export class ReviewController {
 
   @Get(':eventId/export')
   async export(@Param('eventId') eventId: string, @Query('date') date: string | undefined, @Req() req: any, @Res() res: Response) {
-    await this.service.assertAccess(req.user, eventId, ADMINS);
+    await this.check(req, eventId);
     const day = this.date(date);
     const data = await this.service.load(eventId);
     const buffer = await this.documents.xlsx(req.user.sub, buildResultsWorkbook(data, day), 'results-export', eventId, { date: day ?? 'all' });

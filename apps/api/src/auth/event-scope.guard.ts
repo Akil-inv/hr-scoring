@@ -1,97 +1,91 @@
-import {
-  Injectable,
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Reflector } from '@nestjs/core';
-import { PrismaService } from '../prisma/prisma.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import {
+  collectRefs,
+  EVENT_SCOPE_KEY,
+  EventAccessService,
+  NOT_EVENT_SCOPED_KEY,
+  ALLOWED_WHEN_DONE_KEY,
+  ScopeOptions,
+} from './event-access';
 
 /**
- * Restrict a user to the events they have been assigned to.
+ * Every GraphQL operation is either about one event or explicitly not
+ * (@NotEventScoped). For one about an event, every id it names must belong to
+ * that one event and the caller must be on it (src/auth/event-access.ts). The
+ * caller's role on the event is then left on the request for RolesGuard, which
+ * runs next and checks @Roles() against it.
  *
- * `EventUser` has recorded who belongs on which event since the beginning, and
- * nothing ever read it. So an admin brought in for one hackathon has identical
- * rights on every other event on the platform, and a coordinator can start
- * sessions on an event they have never heard of.
+ * Fails closed: an operation that names no event and isn't marked
+ * @NotEventScoped, or that names an id-like field nobody has mapped, is
+ * refused, so a new operation can't be added without deciding its scope.
  *
- * This reads the `eventId` argument off any guarded operation and refuses when
- * the caller is not assigned. It deliberately does not chase indirect
- * references — an operation taking a session id could belong to any event, and
- * resolving that needs a lookup table per entity type. Those remain open, which
- * is a real gap and a smaller one than it sounds: reaching them requires a UUID
- * from an event the user cannot see, which means going after it deliberately
- * rather than wandering in.
- *
- * **Assignment is opt-in.** A user with no rows in `EventUser` keeps global
- * access. Nobody has any today, so denying by default would lock out every
- * account on deploy including the one that would fix it. Access tightens as
- * assignments are added rather than being switched off at once.
- *
- * **The judge portal is untouched.** It is a REST controller marked `@Public()`,
- * authenticates by token rather than login, and has no user to scope. Anything
- * that would gate it — a Prisma middleware, for instance — would break judging
- * on the day, so scoping belongs at the resolver rather than the data layer.
+ * REST handlers check inside the handler (multipart bodies are only parsed
+ * after guards run); a test makes sure each one does or is marked otherwise.
+ * The judge portal is @Public and authenticates by its link token.
  */
+/** The root field being checked, by its name in the request (its alias if it has one). */
+export function fieldKey(ctx: GqlExecutionContext): string {
+  const info = ctx.getInfo();
+  return String(info?.path?.key ?? info?.fieldName ?? '');
+}
+
 @Injectable()
 export class EventScopeGuard implements CanActivate {
+  private readonly logger = new Logger('EventScope');
+
   constructor(
     private reflector: Reflector,
-    private prisma: PrismaService,
+    private access: EventAccessService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    if (isPublic) return true;
-
-    // REST requests are the judge portal, which has no user and no event scope.
+    const targets = [context.getHandler(), context.getClass()];
+    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets)) return true;
     if (context.getType<string>() !== 'graphql') return true;
 
     const ctx = GqlExecutionContext.create(context);
-    const user = ctx.getContext().req?.user;
-    if (!user) return true; // let the auth guard produce the error
+    const req = ctx.getContext().req;
+    // One request can hold several root fields (queries run them at the same
+    // time), so the role found is kept per field, never shared across them.
+    const field = fieldKey(ctx);
+    if (req) {
+      req.eventAccessByField ??= {};
+      delete req.eventAccessByField[field];
+    }
+    const user = req?.user;
+    if (!user) return true; // the auth guard has already answered
 
-    // Owns the platform, sees everything. Consistent with RolesGuard.
-    if (user.role === 'SUPER_ADMIN') return true;
+    if (this.reflector.getAllAndOverride<boolean>(NOT_EVENT_SCOPED_KEY, targets)) return true;
 
-    const eventId = this.eventIdFrom(ctx.getArgs());
-    if (!eventId) return true; // nothing to scope against
-
-    const assignments = await this.prisma.eventUser.count({
-      where: { userId: user.sub },
-    });
-
-    // No assignments at all means nobody has scoped this user yet.
-    if (assignments === 0) return true;
-
-    const assigned = await this.prisma.eventUser.findUnique({
-      where: { userId_eventId: { userId: user.sub, eventId } },
-      select: { id: true },
-    });
-
-    if (!assigned) {
-      throw new ForbiddenException(
-        'You are not assigned to this event. Ask a super admin to add you.',
-      );
+    const options = this.reflector.getAllAndOverride<ScopeOptions>(EVENT_SCOPE_KEY, targets) ?? {};
+    const name = ctx.getInfo()?.fieldName ?? context.getHandler().name;
+    let extra: ReturnType<NonNullable<ScopeOptions['refs']>> = [];
+    if (options.refs) {
+      extra = options.refs(ctx.getArgs());
+      if (extra === 'super-admin-only') {
+        if (user.role === 'SUPER_ADMIN') return true;
+        throw new ForbiddenException('Only a super admin can do this.');
+      }
+    }
+    const { refs, unknown } = collectRefs(ctx.getArgs(), options.id);
+    if (unknown.length && !options.refs) {
+      this.logger.error(`${name}: id fields with no event mapping: ${unknown.join(', ')}`);
+      throw new ForbiddenException('This operation is not set up for event access checks.');
+    }
+    refs.push(...extra);
+    if (!refs.length) {
+      this.logger.error(`${name}: names no event and is not marked @NotEventScoped`);
+      throw new ForbiddenException('This operation is not set up for event access checks.');
     }
 
+    // A done event is a record: no mutation changes it, except who is on it.
+    const write = ctx.getInfo()?.operation?.operation === 'mutation'
+      && !this.reflector.getAllAndOverride<boolean>(ALLOWED_WHEN_DONE_KEY, targets);
+    const { eventId, role } = await this.access.assert(user, null, [], refs, { write });
+    req.eventAccessByField[field] = { eventId, role };
     return true;
-  }
-
-  /**
-   * The event an operation concerns, if it says so plainly.
-   *
-   * Checked both as a direct argument and inside an input object, since
-   * mutations tend to wrap their arguments and queries tend not to.
-   */
-  private eventIdFrom(args: Record<string, any>): string | null {
-    if (typeof args?.eventId === 'string') return args.eventId;
-    if (typeof args?.input?.eventId === 'string') return args.input.eventId;
-    return null;
   }
 }

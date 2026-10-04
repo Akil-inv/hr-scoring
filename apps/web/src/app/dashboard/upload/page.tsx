@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { useCurrentEvent, useEventStore } from '@/lib/event-store';
 import { IssueList, dayLabel, messageOf } from '@/components/upload-common';
@@ -51,6 +51,10 @@ export default function UploadSetupPage() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // An event made in Event Control (still a draft) is set up from the workbook,
+  // rather than the workbook making another event.
+  const settingUpDraft = current?.status === 'DRAFT' && current?.setupMode === 'UPLOAD';
+  useEffect(() => { setReplace(!!settingUpDraft); }, [settingUpDraft, current?.id]);
 
   const send = async (path: 'preview' | 'commit', f: File, replaceIt: boolean) => {
     const form = new FormData();
@@ -126,9 +130,11 @@ export default function UploadSetupPage() {
           <input type="checkbox" checked={replace} onChange={(e) => { setReplace(e.target.checked); if (file) check(file, e.target.checked); }}
             className="mt-1 accent-[#7c3aed]" />
           <span className="text-sm">
-            <span className="text-white">Replace the setup of <strong>{current.name}</strong></span>
+            <span className="text-white">{settingUpDraft ? <>Set up <strong>{current.name}</strong> from this workbook</> : <>Replace the setup of <strong>{current.name}</strong></>}</span>
             <span className="block text-xs text-slate-400 mt-0.5">
-              Only before any candidate is placed. Leave unticked to create a new event.
+              {settingUpDraft
+                ? 'Keeps the name, admins and retention you gave it in Event Control. Untick to create a separate new event instead.'
+                : 'Only before any candidate is placed. Leave unticked to create a new event.'}
             </span>
           </span>
         </label>

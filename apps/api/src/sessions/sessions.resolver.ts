@@ -2,8 +2,10 @@ import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import { SessionsService } from './sessions.service';
 import { SessionEntity, SaveScheduleInput } from './sessions.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
 
+@EventScope({ id: 'session' })
 @Resolver(() => SessionEntity)
 export class SessionsResolver {
   constructor(private sessionsService: SessionsService) {}

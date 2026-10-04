@@ -20,7 +20,10 @@ type NavItem = {
  * wizard's pages (readiness dashboard, event wizard, rankings, conflicts)
  * stay for wizard events only.
  */
+const eventControl: NavItem = { label: 'Event Control', href: '/dashboard/events', icon: '\u25A6' };
+
 const interviewNav: NavItem[] = [
+  eventControl,
   { label: 'Schedule', href: '/dashboard/schedule', icon: '📅' },
   { label: 'Command Centre', href: '/dashboard/operations', icon: '▶' },
   { label: 'Scoring', href: '/dashboard/scoring', icon: '\uD83D\uDCCA' },
@@ -29,10 +32,11 @@ const interviewNav: NavItem[] = [
   { label: 'Judge links', href: '/dashboard/judge-links', icon: '\u2709' },
   { label: 'Upload setup', href: '/dashboard/upload', icon: '\u21EA', roles: ['SUPER_ADMIN', 'ADMIN'] },
   { label: 'Audit log', href: '/dashboard/audit', icon: '\uD83D\uDCCB' },
-  { label: 'Users & roles', href: '/dashboard/users', icon: '\uD83D\uDC65', roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { label: 'Users & roles', href: '/dashboard/users', icon: '\uD83D\uDC65', roles: ['SUPER_ADMIN'] },
 ];
 
 const wizardNav: NavItem[] = [
+  eventControl,
   { label: 'Dashboard', href: '/dashboard', icon: '\u229E' },
   { label: 'Event Setup', href: '/dashboard/event', icon: '⚙' },
   { label: 'Schedule', href: '/dashboard/schedule', icon: '📅' },
@@ -42,7 +46,7 @@ const wizardNav: NavItem[] = [
   { label: 'Conflicts', href: '/dashboard/conflicts', icon: '\u26A0' },
   { label: 'Judge Links', href: '/dashboard/judge-links', icon: '\u2709' },
   { label: 'Audit Log', href: '/dashboard/audit', icon: '\uD83D\uDCCB' },
-  { label: 'Users & roles', href: '/dashboard/users', icon: '\uD83D\uDC65', roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { label: 'Users & roles', href: '/dashboard/users', icon: '\uD83D\uDC65', roles: ['SUPER_ADMIN'] },
 ];
 
 export default function Sidebar() {
@@ -54,8 +58,12 @@ export default function Sidebar() {
   const event = useEventStore((s) => s.event);
   // No event yet counts as interviews: that is what this platform sets up.
   const navItems = event?.setupMode === 'WIZARD' ? wizardNav : interviewNav;
+  // What someone may do depends on their role on the selected event
+  // (super admins: everything).
+  // With no event selected, the platform role (an admin can still set one up).
+  const role = user?.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : event ? (event.role ?? '') : (user?.role ?? '');
   const visibleItems = navItems.filter(
-    (item) => !item.roles || item.roles.includes(user?.role ?? ''),
+    (item) => !item.roles || item.roles.includes(role),
   );
 
   const signOut = () => {
@@ -82,7 +90,7 @@ export default function Sidebar() {
 
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
         {visibleItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive = pathname === item.href || (item.href === '/dashboard/events' && pathname.startsWith('/dashboard/events'));
           return (
             <Link key={item.href} href={item.href}
               className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[14px] font-medium transition-all duration-200 ${
@@ -104,7 +112,9 @@ export default function Sidebar() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[13px] text-[#8694a8] truncate">{user?.email}</p>
-            <p className="text-[10px] text-[#7c3aed] font-semibold uppercase tracking-wider">{user?.role}</p>
+            <p className="text-[10px] text-[#a78bfa] font-semibold uppercase tracking-wider">
+              {user?.role === 'SUPER_ADMIN' ? 'Super admin' : event?.role ? `${event.role.replace('_', ' ')} on this event` : 'Not on an event'}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-4">

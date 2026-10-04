@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction } from '@prisma/client';
@@ -12,7 +12,12 @@ export class EventsService {
   ) {}
 
   async create(input: CreateEventInput, userId: string) {
-    const event = await this.prisma.event.create({ data: input });
+    // The creator is the event's first admin (EventUser), so they can reach it.
+    const event = await this.prisma.$transaction(async (tx) => {
+      const ev = await tx.event.create({ data: input });
+      await tx.eventUser.create({ data: { userId, eventId: ev.id, role: 'ADMIN', addedById: userId } });
+      return ev;
+    });
 
     await this.audit.log({
       userId,
@@ -29,6 +34,13 @@ export class EventsService {
   async update(id: string, input: UpdateEventInput, userId: string) {
     const existing = await this.prisma.event.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Event not found');
+    if (existing.doneAt) throw new BadRequestException('This event is done: only its record is kept.');
+    if (input.status && input.status !== existing.status) {
+      // Closing, archiving and reopening go through Event Control (which keeps
+      // the close date retention counts from); here only Draft <-> Active.
+      const ok = (existing.status === 'DRAFT' && input.status === 'ACTIVE') || (existing.status === 'ACTIVE' && input.status === 'DRAFT');
+      if (!ok) throw new BadRequestException('Close or archive the event from Event Control.');
+    }
 
     const updated = await this.prisma.event.update({
       where: { id },
@@ -54,36 +66,11 @@ export class EventsService {
     return event;
   }
 
-  /**
-   * The events a user may see.
-   *
-   * This is the load-bearing half of event scoping. Every screen hangs off the
-   * event selector, so an event absent from this list is an event the user
-   * cannot navigate to — its id never enters a request at all.
-   *
-   * A user with no assignments sees everything. Nobody has any today, and
-   * denying by default would empty the selector for every account on deploy.
-   */
+  /** The events a user is on (super admins: all). */
   async findAll(user?: { sub?: string; role?: string } | null) {
-    const all = { deletedAt: null } as any;
-
-    if (!user?.sub || user.role === 'SUPER_ADMIN') {
-      return this.prisma.event.findMany({ where: all, orderBy: { createdAt: 'desc' } });
-    }
-
-    const assignments = await this.prisma.eventUser.findMany({
-      where: { userId: user.sub },
-      select: { eventId: true },
-    });
-
-    if (assignments.length === 0) {
-      return this.prisma.event.findMany({ where: all, orderBy: { createdAt: 'desc' } });
-    }
-
-    return this.prisma.event.findMany({
-      where: { ...all, id: { in: assignments.map(a => a.eventId) } },
-      orderBy: { createdAt: 'desc' },
-    });
+    const where: any = { deletedAt: null };
+    if (user?.role !== 'SUPER_ADMIN') where.eventUsers = { some: { userId: user?.sub ?? '00000000-0000-0000-0000-000000000000' } };
+    return this.prisma.event.findMany({ where, orderBy: { createdAt: 'desc' } });
   }
 
   async softDelete(id: string, userId: string) {

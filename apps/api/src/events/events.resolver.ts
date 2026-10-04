@@ -2,6 +2,7 @@ import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import { EventsService } from './events.service';
 import { EventEntity, CreateEventInput, UpdateEventInput } from './events.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope, NotEventScoped } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { ObjectType, Field, Int } from '@nestjs/graphql';
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,6 +19,7 @@ export class JudgingRoundType {
   @Field(() => Int, { nullable: true }) advanceCount?: number;
 }
 
+@EventScope({ id: 'event' })
 @Resolver(() => EventEntity)
 export class EventsResolver {
   constructor(
@@ -25,6 +27,7 @@ export class EventsResolver {
     private prisma: PrismaService,
   ) {}
 
+  @NotEventScoped()
   @Roles('ADMIN')
   @Mutation(() => EventEntity)
   async createEvent(@Args('input') input: CreateEventInput, @CurrentUser() user: any) {
@@ -37,13 +40,14 @@ export class EventsResolver {
     return this.eventsService.update(id, input, user.sub);
   }
 
-  @Roles('ADMIN', 'COORDINATOR', 'AUDITOR')
+  @Roles('ADMIN', 'COORDINATOR', 'PANEL_CHAIR', 'AUDITOR')
   @Query(() => EventEntity)
   async event(@Args('id') id: string) {
     return this.eventsService.findOne(id);
   }
 
-  @Roles('ADMIN', 'COORDINATOR', 'AUDITOR')
+  @NotEventScoped()
+  @Roles('ADMIN', 'COORDINATOR', 'PANEL_CHAIR', 'AUDITOR')
   @Query(() => [EventEntity])
   async events(@CurrentUser() user: any) {
     return this.eventsService.findAll(user);

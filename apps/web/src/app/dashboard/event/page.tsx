@@ -5,6 +5,7 @@ import { useAuthStore } from '@/lib/auth-store';
 import { createClient } from '@/lib/graphql-client';
 import { SET_ROOM_AVAILABILITY, ROOM_UNAVAILABILITY_QUERY, EVENTS_QUERY, ROOMS_QUERY, JUDGES_QUERY } from '@/lib/queries';
 import { useEventId, useEventStore } from '@/lib/event-store';
+import { CLOSE as CLOSE_EVENT } from '@/lib/event-control';
 import ReadinessPlanner from '@/components/readiness-planner';
 import CriteriaBuilder from '@/components/criteria-builder';
 
@@ -59,7 +60,7 @@ export default function EventSetupPage() {
   const [creatingNew, setCreatingNew] = useState(false);
   const event = creatingNew
     ? undefined
-    : (evData?.events?.find((e: any) => e.id === selectedEventId) ?? evData?.events?.[0]);
+    : (evData?.events?.find((e: any) => e.id === selectedEventId));
   const eventId = event?.id;
   const { data: roomData } = useQuery<any>(ROOMS_QUERY, eventId ? { eventId } : undefined);
   const { data: judgeData } = useQuery<any>(JUDGES_QUERY, eventId ? { eventId } : undefined);
@@ -400,7 +401,7 @@ export default function EventSetupPage() {
                 className="btn btn-sec btn-sm"
                 onClick={async () => {
                   if (!confirm(`Mark "${event.name}" as completed? This closes judging and locks scoring \u2014 judges will no longer be able to submit or change scores. Make sure all scoring is finished first.`)) return;
-                  const d = await run(UPDATE_EVENT, { id: event.id, input: { status: 'COMPLETED' } });
+                  const d = await run(CLOSE_EVENT, { e: event.id });
                   if (d) { show('Event marked completed \u2014 scoring is now locked'); reload(); }
                 }}
               >

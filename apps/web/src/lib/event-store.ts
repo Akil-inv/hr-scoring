@@ -27,8 +27,9 @@ export type EventSummary = {
   location?: string | null;
   /** WIZARD or UPLOAD (interview events). Present from `events`. */
   setupMode?: string | null;
-  /** Per-event role. Only populated once `myEvents` is wired. */
+  /** The person's role on this event: ADMIN, COORDINATOR, PANEL_CHAIR or AUDITOR. */
   role?: string | null;
+  doneAt?: string | null;
 };
 
 type EventState = {
@@ -37,6 +38,9 @@ type EventState = {
   events: EventSummary[];
   /** True once setEvents has run at least once — distinguishes "no events" from "not loaded". */
   loaded: boolean;
+  /** Bumped to make the sidebar fetch the event list again (after creating one, joining one...). */
+  version: number;
+  reload: () => void;
 
   setEvents: (events: EventSummary[]) => void;
   selectEvent: (id: string) => void;
@@ -50,6 +54,8 @@ export const useEventStore = create<EventState>()(
       event: null,
       events: [],
       loaded: false,
+      version: 0,
+      reload: () => set({ version: get().version + 1 }),
 
       setEvents: (events) => {
         const current = get().eventId;

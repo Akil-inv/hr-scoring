@@ -2,13 +2,14 @@
 import { useState, useRef } from 'react';
 import { useQuery } from '@/lib/use-graphql';
 import { useAuthStore } from '@/lib/auth-store';
-import { EVENTS_QUERY, JUDGES_QUERY } from '@/lib/queries';
+import { useCurrentEvent } from '@/lib/event-store';
+import { JUDGES_QUERY } from '@/lib/queries';
 import StatusBadge from '@/components/status-badge';
 import DataTable from '@/components/data-table';
 
 export default function JudgesPage() {
-  const { data: evData } = useQuery<any>(EVENTS_QUERY);
-  const event = evData?.events?.[0];
+  // The event chosen in the sidebar.
+  const event = useCurrentEvent();
   const eventId = event?.id;
   const { data: judgeData, loading } = useQuery<any>(JUDGES_QUERY, eventId ? { eventId } : undefined);
   const token = useAuthStore((s) => s.token);

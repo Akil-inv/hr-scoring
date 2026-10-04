@@ -2,8 +2,10 @@ import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import { TeamsService } from './teams.service';
 import { TeamEntity, CreateTeamInput, UpdateTeamInput } from './teams.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
 
+@EventScope({ id: 'team' })
 @Resolver(() => TeamEntity)
 export class TeamsResolver {
   constructor(private teamsService: TeamsService) {}

@@ -2,8 +2,10 @@ import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import { ConflictsService } from './conflicts.service';
 import { ConflictEntity, DeclareConflictInput } from './conflicts.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
 
+@EventScope({ id: 'conflict' })
 @Resolver(() => ConflictEntity)
 export class ConflictsResolver {
   constructor(private conflictsService: ConflictsService) {}

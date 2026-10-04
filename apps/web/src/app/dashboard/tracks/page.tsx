@@ -1,13 +1,14 @@
 'use client';
 
 import { useQuery } from '@/lib/use-graphql';
-import { TRACKS_QUERY, EVENTS_QUERY } from '@/lib/queries';
+import { useEventId } from '@/lib/event-store';
+import { TRACKS_QUERY } from '@/lib/queries';
 import DataTable from '@/components/data-table';
 import StatusBadge from '@/components/status-badge';
 
 export default function TracksPage() {
-  const { data: evData } = useQuery<any>(EVENTS_QUERY);
-  const eventId = evData?.events?.[0]?.id;
+  // The event chosen in the sidebar.
+  const eventId = useEventId();
   const { data, loading } = useQuery<any>(TRACKS_QUERY, eventId ? { eventId } : undefined);
 
   const columns = [

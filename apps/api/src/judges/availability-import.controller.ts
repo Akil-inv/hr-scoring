@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { parseSpreadsheet } from '../common/spreadsheet';
 import { JudgesService } from './judges.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { EventAccessService, EventCheckedInHandler } from '../auth/event-access';
 
 /**
  * Judge availability import.
@@ -25,8 +26,9 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
  * refusing to schedule someone who is.
  */
 @Controller('api/import')
+@EventCheckedInHandler()
 export class AvailabilityImportController {
-  constructor(private judgesService: JudgesService) {}
+  constructor(private judgesService: JudgesService, private access: EventAccessService) {}
 
   @Post('availability')
   @UseGuards(JwtAuthGuard)
@@ -36,6 +38,7 @@ export class AvailabilityImportController {
     @Body('eventId') eventId: string,
     @Req() req: any,
   ) {
+    await this.access.assert(req.user, typeof eventId === 'string' ? eventId : '', ['ADMIN', 'COORDINATOR'], [], { write: true });
     const rows = parseSpreadsheet(file);
     const userId = req.user?.sub || req.user?.id;
     return this.judgesService.importAvailability(eventId, rows, userId);

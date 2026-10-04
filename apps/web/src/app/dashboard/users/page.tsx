@@ -44,7 +44,7 @@ const GLOBAL_ROLES = [
 /** Per-event roles, from the EventRole enum. Narrower than the global list. */
 const EVENT_ROLES = ['ADMIN', 'COORDINATOR', 'PANEL_CHAIR', 'AUDITOR'] as const;
 
-const ROLES_THAT_MANAGE_USERS = ['SUPER_ADMIN', 'ADMIN'];
+const ROLES_THAT_MANAGE_USERS = ['SUPER_ADMIN'];
 
 /** Strips the `[GraphQL] ` prefix urql puts on server errors. */
 function cleanError(message: string) {

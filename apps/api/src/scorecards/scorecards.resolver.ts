@@ -2,8 +2,10 @@ import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import { ScorecardsService } from './scorecards.service';
 import { ScorecardEntity, SaveScorecardInput, SubmitScorecardInput } from './scorecards.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
 
+@EventScope({ id: 'scorecard' })
 @Resolver(() => ScorecardEntity)
 export class ScorecardsResolver {
   constructor(private service: ScorecardsService) {}
@@ -31,6 +33,8 @@ export class ScorecardsResolver {
     return this.service.findByEvent(eventId);
   }
 
+  // Auditors only read.
+  @Roles('ADMIN', 'COORDINATOR', 'PANEL_CHAIR')
   @Mutation(() => ScorecardEntity)
   async saveScorecardDraft(
     @Args('input') input: SaveScorecardInput,
@@ -39,6 +43,8 @@ export class ScorecardsResolver {
     return this.service.saveDraft(input, user.sub);
   }
 
+  // Auditors only read.
+  @Roles('ADMIN', 'COORDINATOR', 'PANEL_CHAIR')
   @Mutation(() => ScorecardEntity)
   async submitScorecard(
     @Args('input') input: SubmitScorecardInput,

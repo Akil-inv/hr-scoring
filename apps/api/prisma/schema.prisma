@@ -87,6 +87,13 @@ model Event {
   /// Closing the event (status COMPLETED) is final: everything is read-only.
   closedAt                    DateTime?      @map("closed_at")
   closedById                  String?        @map("closed_by") @db.Uuid
+  /// How long candidate data is kept after the event is closed (3-6 months,
+  /// chosen when the event is created), plus any extensions admins add.
+  retentionMonths             Int            @default(6) @map("retention_months")
+  retentionExtraMonths        Int            @default(0) @map("retention_extra_months")
+  /// Marked done after retention: candidate data removed, the record kept.
+  doneAt                      DateTime?      @map("done_at")
+  doneById                    String?        @map("done_by") @db.Uuid
   createdAt                   DateTime       @default(now()) @map("created_at")
   updatedAt                   DateTime       @updatedAt @map("updated_at")
   deletedAt                   DateTime?      @map("deleted_at")
@@ -745,6 +752,8 @@ model EventUser {
   eventId   String    @map("event_id") @db.Uuid
   role      EventRole
   createdAt DateTime  @default(now()) @map("created_at")
+  /// Who added this person to the event (null for those added before this was kept).
+  addedById String?   @map("added_by") @db.Uuid
   user      User      @relation(fields: [userId], references: [id])
   event     Event     @relation(fields: [eventId], references: [id])
 

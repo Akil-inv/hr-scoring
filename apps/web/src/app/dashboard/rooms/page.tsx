@@ -1,13 +1,14 @@
 'use client';
 
 import { useQuery } from '@/lib/use-graphql';
-import { ROOMS_QUERY, TIMESLOTS_QUERY, EVENTS_QUERY } from '@/lib/queries';
+import { useEventId } from '@/lib/event-store';
+import { ROOMS_QUERY, TIMESLOTS_QUERY } from '@/lib/queries';
 import DataTable from '@/components/data-table';
 import StatusBadge from '@/components/status-badge';
 
 export default function RoomsPage() {
-  const { data: evData } = useQuery<any>(EVENTS_QUERY);
-  const eventId = evData?.events?.[0]?.id;
+  // The event chosen in the sidebar.
+  const eventId = useEventId();
   const { data: roomData, loading: roomsLoading } = useQuery<any>(ROOMS_QUERY, eventId ? { eventId } : undefined);
   const { data: slotData } = useQuery<any>(TIMESLOTS_QUERY, eventId ? { eventId } : undefined);
 

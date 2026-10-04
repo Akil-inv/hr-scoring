@@ -1,3 +1,4 @@
+import { NotEventScoped } from '../auth/event-access';
 import { Body, Controller, Get, Put, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DocumentPasswordService } from './document-password.service';
@@ -6,6 +7,7 @@ import { DocumentPasswordService } from './document-password.service';
  *   GET /api/document-password   { set, setAt } for the signed-in user (never the password)
  *   PUT /api/document-password   { signInPassword, password }: set or change it
  */
+@NotEventScoped()
 @Controller('api/document-password')
 @UseGuards(JwtAuthGuard)
 export class DocumentPasswordController {

@@ -151,7 +151,7 @@ export const SUBMIT_SCORECARD_MUTATION = `
 
 // Requires UsersModule registered in app.module.ts.
 // Until then EventSelector falls back to EVENTS_QUERY.
-export const MY_EVENTS_QUERY = `query { myEvents { id name status role } }`;
+export const MY_EVENTS_QUERY = `query { myEvents { id name description location timezone startDate endDate status setupMode sessionDurationMinutes minJudgesPerTeam maxJudgesPerTeam doneAt role } }`;
 
 // --- User management ----------------------------------------------------
 

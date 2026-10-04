@@ -2,13 +2,14 @@
 import { useState, useRef } from 'react';
 import { useQuery } from '@/lib/use-graphql';
 import { useAuthStore } from '@/lib/auth-store';
-import { EVENTS_QUERY, TEAMS_QUERY } from '@/lib/queries';
+import { useCurrentEvent } from '@/lib/event-store';
+import { TEAMS_QUERY } from '@/lib/queries';
 import StatusBadge from '@/components/status-badge';
 import DataTable from '@/components/data-table';
 
 export default function TeamsPage() {
-  const { data: evData } = useQuery<any>(EVENTS_QUERY);
-  const event = evData?.events?.[0];
+  // The event chosen in the sidebar.
+  const event = useCurrentEvent();
   const eventId = event?.id;
   const { data: teamData, loading } = useQuery<any>(TEAMS_QUERY, eventId ? { eventId } : undefined);
   const token = useAuthStore((s) => s.token);

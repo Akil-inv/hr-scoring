@@ -5,6 +5,7 @@ import { DocumentPasswordService } from '../documents/document-password.service'
 import { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { EventAccessService, EventCheckedInHandler, Ref } from '../auth/event-access';
 import { ScorecardStatus } from '@prisma/client';
 
 const COMPLETED_STATUSES: ScorecardStatus[] = [
@@ -13,14 +14,24 @@ const COMPLETED_STATUSES: ScorecardStatus[] = [
   ScorecardStatus.LOCKED,
 ];
 
+/** Who may download an event's data: its admins, coordinators and auditors. */
+const EXPORTERS = ['ADMIN', 'COORDINATOR', 'AUDITOR'];
+
 @Controller('api/export')
 @UseGuards(JwtAuthGuard)
+@EventCheckedInHandler()
 export class ExportController {
-  constructor(private prisma: PrismaService, private documents: DocumentPasswordService) {}
+  constructor(private prisma: PrismaService, private documents: DocumentPasswordService, private access: EventAccessService) {}
+
+  private async check(req: any, eventId: unknown, refs: Ref[] = []) {
+    if (typeof eventId !== 'string' || !eventId) throw new BadRequestException('Say which event (eventId).');
+    await this.access.assert(req.user, eventId, EXPORTERS, refs);
+  }
 
   // ─── 1. SCHEDULE EXPORT ───
   @Get('schedule')
   async exportSchedule(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
+    await this.check(req, eventId);
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -56,6 +67,7 @@ export class ExportController {
   // ─── 2. RAW SCORES ───
   @Get('scores-raw')
   async exportScoresRaw(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
+    await this.check(req, eventId);
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -96,6 +108,7 @@ export class ExportController {
   // ─── 3. SCORE SUMMARY ───
   @Get('scores')
   async exportScores(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
+    await this.check(req, eventId);
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -146,6 +159,7 @@ export class ExportController {
   // ─── 4. TEAM AGGREGATES ───
   @Get('team-aggregates')
   async exportTeamAggregates(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
+    await this.check(req, eventId);
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -210,6 +224,7 @@ export class ExportController {
   // ─── 5. JUDGE ANALYTICS ───
   @Get('judge-analytics')
   async exportJudgeAnalytics(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
+    await this.check(req, eventId);
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -273,6 +288,7 @@ export class ExportController {
   // ─── 6. INDICATIVE RANKINGS ───
   @Get('rankings')
   async exportRankings(@Query('eventId') eventId: string, @Query('trackId') trackId: string, @Req() req: any, @Res() res: Response) {
+    await this.check(req, eventId, trackId ? [{ kind: 'track', id: trackId }] : []);
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -334,6 +350,7 @@ export class ExportController {
     @Req() req: any, @Res() res: Response,
     @Body() body: { name?: string; eventId?: string; header?: unknown; rows?: unknown },
   ) {
+    await this.check(req, body?.eventId);
     const header = body?.header;
     const rows = body?.rows;
     if (!Array.isArray(header) || header.length === 0 || header.length > 100 || !Array.isArray(rows) || rows.length > 20000) {
@@ -342,7 +359,7 @@ export class ExportController {
     const text = (v: unknown) => (v === null || v === undefined ? '' : String(v).slice(0, 5000));
     const lines = rows.map((r) => (Array.isArray(r) ? r : []).map((c) => this.csvCell(text(c))).join(','));
     const name = text(body?.name).replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'export';
-    await this.sendXlsx(req, res, name, 'table', header.map(text), lines, typeof body?.eventId === 'string' ? body.eventId : undefined);
+    await this.sendXlsx(req, res, name, 'table', header.map(text), lines, body!.eventId);
   }
 
   // ─── Helper ───

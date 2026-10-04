@@ -90,6 +90,28 @@ enum ConflictSource {
   SELF_DECLARED
 }
 
+type ControlledEvent {
+  admins: [EventPerson!]!
+  closedAt: DateTime
+  createdAt: DateTime!
+  description: String
+  doneAt: DateTime
+  due: Boolean!
+  endDate: DateTime!
+  id: String!
+  myRole: String
+  name: String!
+  onEvent: Boolean!
+  progress: EventProgress
+  retainUntil: DateTime
+  retentionExtraMonths: Int!
+  retentionMonths: Int!
+  setupMode: String!
+  stage: String!
+  startDate: DateTime!
+  status: String!
+}
+
 input CreateEventInput {
   description: String
   endDate: DateTime!
@@ -164,7 +186,7 @@ input CreateUserInput {
   email: String!
   globalRole: String
   name: String!
-  password: String!
+  password: String
   phone: String
 }
 
@@ -206,6 +228,38 @@ input DeclareConflictInput {
   teamId: String!
 }
 
+type EventChange {
+  at: DateTime!
+  by: String!
+  what: String!
+}
+
+type EventControlDetail {
+  admins: [EventPerson!]!
+  closedAt: DateTime
+  createdAt: DateTime!
+  description: String
+  doneAt: DateTime
+  doneKeeps: [String!]!
+  doneRemoves: [String!]!
+  due: Boolean!
+  endDate: DateTime!
+  id: String!
+  myRole: String
+  name: String!
+  onEvent: Boolean!
+  people: [EventMember!]!
+  progress: EventProgress
+  recentChanges: [EventChange!]!
+  retainUntil: DateTime
+  retentionExtraMonths: Int!
+  retentionMonths: Int!
+  setupMode: String!
+  stage: String!
+  startDate: DateTime!
+  status: String!
+}
+
 type EventEntity {
   createdAt: DateTime!
   description: String
@@ -221,14 +275,35 @@ type EventEntity {
   qaDurationMinutes: Int!
   scoringDurationMinutes: Int!
   sessionDurationMinutes: Int!
+  setupMode: String!
   startDate: DateTime!
   status: EventStatus!
-
-  """WIZARD or UPLOAD. Upload events have the interview schedule instead of the wizard flow."""
-  setupMode: String!
   timezone: String!
   transitionBufferMinutes: Int!
   updatedAt: DateTime!
+}
+
+type EventMember {
+  addedAt: DateTime!
+  addedBy: String
+  email: String!
+  name: String!
+  role: String!
+  userId: String!
+}
+
+type EventPerson {
+  email: String!
+  name: String!
+  userId: String!
+}
+
+type EventProgress {
+  candidates: Int!
+  daysClosed: Int!
+  daysTotal: Int!
+  interviewsDone: Int!
+  interviewsTotal: Int!
 }
 
 enum EventStatus {
@@ -259,14 +334,14 @@ input GenerateScheduleInput {
 }
 
 input GenerateTimeSlotsInput {
-  breakDurationMinutes: Int
+  breakDurationMinutes: Int @deprecated(reason: "Ignored; sessions are generated back-to-back with no break.")
   date: DateTime!
   eventId: String!
   lunchEnd: String
   lunchStart: String
   operatingEnd: String!
   operatingStart: String!
-  sessionDurationMinutes: Int
+  sessionDurationMinutes: Int @deprecated(reason: "Derived from event.sessionDurationMinutes; value is ignored.")
   unavailableRooms: [RoomHalfDayInput!]
 }
 
@@ -359,16 +434,6 @@ type LoadRubricResult {
   templateId: String!
 }
 
-input LoginInput {
-  email: String!
-  password: String!
-}
-
-type LoginResponse {
-  accessToken: String!
-  user: UserResponse!
-}
-
 input MarkAbsentInput {
   eventId: String!
   judgeId: String!
@@ -382,13 +447,18 @@ type MessageResult {
 type Mutation {
   activateScoringTemplate(id: String!): ScoringTemplateEntity!
   addCriterion(input: AddCriterionInput!): ScoringCriterionEntity!
+  addEventPerson(eventId: String!, role: String!, userId: String!): Boolean!
   addJudgeToSession(input: AddJudgeInput!): OperationResult!
   approveRankings(eventId: String!, trackId: String): RankingOutput
+  archiveEvent(eventId: String!): ControlledEvent!
   assignEventRole(input: AssignEventRoleInput!): Boolean!
   calculateRankings(eventId: String!, trackId: String): RankingOutput!
   cancelSession(input: CancelSessionInput!): OperationResult!
+  changeEventPersonRole(eventId: String!, role: String!, userId: String!): Boolean!
   changeRoom(input: ChangeRoomInput!): OperationResult!
   clearTimeSlots(date: String!, eventId: String!): Boolean!
+  closeControlledEvent(eventId: String!): ControlledEvent!
+  createControlledEvent(input: NewEventInput!): ControlledEvent!
   createEvent(input: CreateEventInput!): EventEntity!
   createJudge(input: CreateJudgeInput!): JudgeEntity!
   createRoom(input: CreateRoomInput!): RoomEntity!
@@ -402,17 +472,17 @@ type Mutation {
   deleteRoom(id: String!): RoomEntity!
   deleteTeam(id: String!): TeamEntity!
   deleteTrack(id: String!): TrackEntity!
-  deleteUser(userId: String!): Boolean!
+  extendEventRetention(eventId: String!, months: Int!, reason: String!): ControlledEvent!
   generateSchedule(input: GenerateScheduleInput!): ScheduleResult!
   generateTimeSlots(input: GenerateTimeSlotsInput!): [TimeSlotEntity!]!
   loadStandardRubric(eventId: String!): LoadRubricResult!
   lockScorecard(scorecardId: String!): ScorecardEntity!
-  login(input: LoginInput!): LoginResponse!
+  markEventDone(confirmName: String!, eventId: String!, password: String!): ControlledEvent!
   markJudgeAbsent(input: MarkAbsentInput!): OperationResult!
   messageJudges(body: String!, eventId: String!, judgeIds: [String!]!): MessageResult!
   publishRankings(eventId: String!, trackId: String): RankingOutput
-  register(input: RegisterInput!): UserResponse!
   removeCriterion(id: String!): Boolean!
+  removeEventPerson(eventId: String!, userId: String!): Boolean!
   removeEventRole(eventId: String!, userId: String!): Boolean!
   removeJudge(input: RemoveJudgeInput!): OperationResult!
   reopenScorecard(reason: String!, scorecardId: String!): ScorecardEntity!
@@ -420,14 +490,15 @@ type Mutation {
   reorderTracks(inputs: [ReorderTrackInput!]!): [TrackEntity!]!
   rescheduleSession(input: RescheduleInput!): OperationResult!
   resetSchedule(eventId: String!): Boolean!
-  resetUserPassword(newPassword: String!, userId: String!): Boolean!
   resolveConflict(id: String!): ConflictEntity!
   saveScheduleSessions(inputs: [SaveScheduleInput!]!): [SessionEntity!]!
   saveScorecardDraft(input: SaveScorecardInput!): ScorecardEntity!
+  setEventRetention(eventId: String!, months: Int!): ControlledEvent!
   setJudgeAvailability(input: SetJudgeAvailabilityInput!): JudgeAvailabilityEntity!
   setJudgeBreak(input: SetJudgeBreakInput!): OperationResult!
   setJudgeExpertise(input: SetJudgeExpertiseInput!): JudgeExpertiseEntity!
   setRoomAvailability(date: DateTime!, eventId: String!, roomId: String!, session: String!, unavailable: Boolean!): OperationOk!
+  startEvent(eventId: String!): ControlledEvent!
   submitScorecard(input: SubmitScorecardInput!): ScorecardEntity!
   swapJudge(input: SwapJudgeInput!): OperationResult!
   swapRooms(input: SwapRoomsInput!): OperationResult!
@@ -444,10 +515,31 @@ type Mutation {
 }
 
 type MyEvent {
+  description: String
+  doneAt: DateTime
+  endDate: DateTime!
   id: String!
+  location: String
+  maxJudgesPerTeam: Int!
+  minJudgesPerTeam: Int!
   name: String!
   role: String!
+  sessionDurationMinutes: Int!
+  setupMode: String!
+  startDate: DateTime!
   status: String!
+  timezone: String!
+}
+
+input NewEventInput {
+  coAdminUserIds: [String!]
+  description: String
+  endDate: DateTime!
+  name: String!
+  retentionMonths: Int
+  setupMode: String
+  startDate: DateTime!
+  timezone: String
 }
 
 type OperationOk {
@@ -484,6 +576,9 @@ type Query {
   conflictsByJudge(judgeId: String!): [ConflictEntity!]!
   conflictsByTeam(teamId: String!): [ConflictEntity!]!
   event(id: String!): EventEntity!
+  eventControl(eventId: String!): EventControlDetail!
+  eventDirectory: [ControlledEvent!]!
+  eventPeopleSearch(eventId: String!, query: String!): [EventPerson!]!
   eventUsers(eventId: String!): [EventUserEntity!]!
   events: [EventEntity!]!
   findReplacementJudges(sessionId: String!): [ReplacementJudge!]!
@@ -510,6 +605,7 @@ type Query {
   session(id: String!): SessionEntity!
   sessionHealthCheck(eventId: String!): [SessionHealthCheck!]!
   sessions(eventId: String!): [SessionEntity!]!
+  staffSearch(query: String!): [EventPerson!]!
   team(id: String!): TeamEntity!
   teams(eventId: String!, status: String, trackId: String): [TeamEntity!]!
   timeSlots(date: DateTime, eventId: String!): [TimeSlotEntity!]!
@@ -535,12 +631,6 @@ enum RankingStatus {
   CALCULATING
   PROVISIONAL
   PUBLISHED
-}
-
-input RegisterInput {
-  email: String!
-  password: String!
-  role: Role!
 }
 
 input RemoveJudgeInput {
@@ -701,8 +791,8 @@ type ScoringTemplateEntity {
   id: String!
   maxTotal: Int!
   name: String!
-  status: ScoringTemplateStatus!
   scale: String!
+  status: ScoringTemplateStatus!
 }
 
 enum ScoringTemplateStatus {
@@ -808,6 +898,7 @@ input SetJudgeExpertiseInput {
 enum SlotType {
   BLOCKED
   BREAK
+  CALIBRATION
   CEREMONY
   JUDGING
   LUNCH

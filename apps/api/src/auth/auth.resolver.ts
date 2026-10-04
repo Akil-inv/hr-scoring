@@ -1,3 +1,4 @@
+import { NotEventScoped } from './event-access';
 import { Resolver, Query } from '@nestjs/graphql';
 import { AuthService } from './auth.service';
 import { UserResponse } from './auth.types';
@@ -7,6 +8,7 @@ import { CurrentUser } from './current-user.decorator';
  * Signing in, passwords, invites and two-factor are REST routes under
  * /api/auth (auth-kit; see auth-kit.ts). GraphQL keeps only "who am I".
  */
+@NotEventScoped()
 @Resolver()
 export class AuthResolver {
   constructor(private authService: AuthService) {}
