@@ -51,7 +51,7 @@ export function hrUsers(prisma: PrismaService): UserAdapter {
         if ((e as { code?: string })?.code !== 'P2003') throw e;
         await prisma.user.update({
           where: { id },
-          data: { email: `deleted-${id}@deleted.invalid`, name: 'Deleted user', phone: null, passwordHash: '' },
+          data: { email: `deleted-${id}@deleted.invalid`, name: 'Deleted user', phone: null, passwordHash: '', documentPassword: null, documentPasswordSetAt: null },
         });
       }
     },

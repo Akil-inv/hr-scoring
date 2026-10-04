@@ -182,13 +182,13 @@ function WizardSchedulePage() {
   };
 
   /**
-   * Download the whole schedule as CSV.
+   * Download the whole schedule as Excel, locked with the document password.
    *
    * Deliberately unfiltered. Filters on screen are for working; an export is
    * for taking away, and it is easier to filter in a spreadsheet than to
    * remember what was set when the button was pressed.
    */
-  const exportCsv = () => {
+  const exportCsv = async () => {
     const rows = allRowsForOutput();
     if (rows.length === 0) { setMessage('Nothing to export yet'); return; }
 
@@ -201,15 +201,10 @@ function WizardSchedulePage() {
       ...Array.from({ length: MAX_JUDGES }, (_, i) => `judge_${i + 1}_tier`),
     ];
 
-    // Quote everything. Team names contain commas and apostrophes, and a
-    // half-quoted file opens wrong in Excel without any warning.
-    const cell = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-
-    const lines = [headers.join(',')];
-    for (const r of rows) {
+    const table = rows.map((r: any) => {
       const names: string[] = r.judgeNames || [];
       const tiers: string[] = r.judgeTiers || [];
-      lines.push([
+      return [
         r.confirmed ? 'CONFIRMED' : 'DRAFT',
         r.slotDate ?? '', r.slotStart ?? '', r.slotEnd ?? '', r.roomName ?? '',
         r.teamName ?? '', r.projectName ?? '', r.trackName ?? '',
@@ -217,16 +212,26 @@ function WizardSchedulePage() {
         names.length, names.join(' | '),
         ...Array.from({ length: MAX_JUDGES }, (_, i) => names[i] ?? ''),
         ...Array.from({ length: MAX_JUDGES }, (_, i) => tiers[i] ?? ''),
-      ].map(cell).join(','));
-    }
+      ];
+    });
 
-    // BOM so Excel reads the file as UTF-8 rather than guessing.
-    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+    // Sent to the server to come back as an Excel file locked with the
+    // document password, like every other download (a CSV made here couldn't be).
+    const res = await fetch(`/api/export/table`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: event?.name || 'schedule', eventId, header: headers, rows: table }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      setMessage(typeof body?.message === 'string' ? body.message : `Export failed (${res.status})`);
+      return;
+    }
+    const url = URL.createObjectURL(await res.blob());
     const a = document.createElement('a');
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
     a.href = url;
-    a.download = `${(event?.name || 'schedule').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${stamp}.csv`;
+    a.download = `${(event?.name || 'schedule').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${stamp}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
     setMessage(`Exported ${rows.length} sessions`);
@@ -588,7 +593,7 @@ function WizardSchedulePage() {
           </button>
           <button type="button" onClick={exportCsv} disabled={plannerCards.length === 0 && scheduledCards.length === 0}
             className="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-white text-xs font-medium rounded-lg border border-dark-500 transition-all disabled:opacity-50">
-            Export CSV
+            Export (Excel)
           </button>
           <button type="button" onClick={printSchedule} disabled={plannerCards.length === 0 && scheduledCards.length === 0}
             className="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-white text-xs font-medium rounded-lg border border-dark-500 transition-all disabled:opacity-50">

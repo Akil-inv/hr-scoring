@@ -48,6 +48,7 @@ export default function PdfViewer({
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-white">{title}</p>
             {subtitle && <p className="truncate text-xs text-slate-400">{subtitle}</p>}
+            <p className="truncate text-xs text-slate-500">🔒 Opens with your document password, here and when downloaded.</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {url && (

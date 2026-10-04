@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { ReviewService } from './review.service';
+import { DocumentPasswordService } from '../documents/document-password.service';
 import { buildResultsWorkbook, resultsFileName, resultsOrder } from './review-export';
 
 const ADMINS = ['ADMIN'];
@@ -19,10 +20,14 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
  *   POST /api/review/:eventId/:sessionId/reopen          { reason, judgeIds } reopen scoring / the decision
  *   POST /api/review/:eventId/days/:date/close           close a day
  *   POST /api/review/:eventId/close                      close the event (final)
+ *
+ * Every file here (report PDF, preview, the day's zip of PDFs, the .xlsx) is
+ * locked with the downloader's document password (src/documents), and the
+ * download is recorded in the audit log.
  */
 @Controller('api/review')
 export class ReviewController {
-  constructor(private service: ReviewService) {}
+  constructor(private service: ReviewService, private documents: DocumentPasswordService) {}
 
   private date(d?: string): string | undefined {
     if (!d) return undefined;
@@ -58,7 +63,8 @@ export class ReviewController {
     await this.service.assertAccess(req.user, eventId, ADMINS);
     const day = this.date(date);
     if (!day) throw new BadRequestException('Choose a day (date=YYYY-MM-DD).');
-    const out = await this.service.dayReports(eventId, day);
+    const out = await this.service.dayReports(eventId, day,
+      (files) => this.documents.pdfs(req.user.sub, files, 'day-reports', eventId, { date: day }));
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${out.fileName}"`);
     res.send(out.zip);
@@ -73,9 +79,10 @@ export class ReviewController {
     await this.service.assertAccess(req.user, eventId, ADMINS);
     const rev = revision && /^\d+$/.test(revision) ? Number(revision) : undefined;
     const out = await this.service.report(eventId, sessionId, rev);
+    const pdf = await this.documents.pdf(req.user.sub, out.pdf, 'report', eventId, { sessionId, revision: rev ?? 'current' });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${view ? 'inline' : 'attachment'}; filename="${out.fileName}"`);
-    res.send(out.pdf);
+    res.send(pdf);
   }
 
   @Post(':eventId/:sessionId/reopen')
@@ -110,9 +117,10 @@ export class ReviewController {
   ) {
     await this.service.assertAccess(req.user, eventId, ADMINS);
     const out = await this.service.previewReport(eventId, sessionId, body ?? {}, req.user.sub);
+    const pdf = await this.documents.pdf(req.user.sub, out.pdf, 'report-preview', eventId, { sessionId });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${out.fileName}"`);
-    res.send(out.pdf);
+    res.send(pdf);
   }
 
   @Get(':eventId/export')
@@ -120,7 +128,7 @@ export class ReviewController {
     await this.service.assertAccess(req.user, eventId, ADMINS);
     const day = this.date(date);
     const data = await this.service.load(eventId);
-    const buffer = buildResultsWorkbook(data, day);
+    const buffer = await this.documents.xlsx(req.user.sub, buildResultsWorkbook(data, day), 'results-export', eventId, { date: day ?? 'all' });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${resultsFileName(data.event.name, day)}"`);
     res.send(buffer);

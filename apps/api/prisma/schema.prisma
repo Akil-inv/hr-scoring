@@ -33,6 +33,10 @@ model User {
   name         String   @default("")
   phone        String?
   role         Role
+  /// Opens the files this user downloads (report PDFs, Excel exports). Never
+  /// the sign-in password. Encrypted at rest (src/crypto/encrypted-fields.ts).
+  documentPassword      String?   @map("document_password")
+  documentPasswordSetAt DateTime? @map("document_password_set_at")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
