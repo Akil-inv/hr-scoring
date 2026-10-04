@@ -1,9 +1,3 @@
-export const LOGIN_MUTATION = `
-  mutation Login($input: LoginInput!) {
-    login(input: $input) { accessToken user { id email role } }
-  }
-`;
-
 export const ME_QUERY = `query { me { id email role } }`;
 export const EVENTS_QUERY = `query { events { id name description location timezone startDate endDate status setupMode sessionDurationMinutes minJudgesPerTeam maxJudgesPerTeam } }`;
 
@@ -178,18 +172,6 @@ export const ASSIGN_EVENT_ROLE_MUTATION = `
 export const REMOVE_EVENT_ROLE_MUTATION = `
   mutation RemoveEventRole($userId: String!, $eventId: String!) {
     removeEventRole(userId: $userId, eventId: $eventId)
-  }
-`;
-
-export const DELETE_USER_MUTATION = `
-  mutation DeleteUser($userId: String!) {
-    deleteUser(userId: $userId)
-  }
-`;
-
-export const RESET_USER_PASSWORD_MUTATION = `
-  mutation ResetUserPassword($userId: String!, $newPassword: String!) {
-    resetUserPassword(userId: $userId, newPassword: $newPassword)
   }
 `;
 

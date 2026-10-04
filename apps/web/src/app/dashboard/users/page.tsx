@@ -1,6 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import { AuthRequestsPanel, LinkBox, UserSecurityActions, UserSecurityBadges, useAuthKit, useUserSecurity } from '@akil-inv/auth-kit/react';
+import type { Link as AuthLink } from '@akil-inv/auth-kit/client';
+import { HrAuthKit } from '@/lib/auth-kit';
 import { useAuthStore } from '@/lib/auth-store';
 import { createClient } from '@/lib/graphql-client';
 import { useEventStore } from '@/lib/event-store';
@@ -11,8 +14,6 @@ import {
   CREATE_USER_MUTATION,
   ASSIGN_EVENT_ROLE_MUTATION,
   REMOVE_EVENT_ROLE_MUTATION,
-  DELETE_USER_MUTATION,
-  RESET_USER_PASSWORD_MUTATION,
 } from '@/lib/queries';
 
 type User = {
@@ -63,6 +64,11 @@ function roleTone(role: string) {
 }
 
 export default function UsersPage() {
+  return <HrAuthKit><UsersPageInner /></HrAuthKit>;
+}
+
+function UsersPageInner() {
+  const { client: auth } = useAuthKit();
   const token = useAuthStore((s) => s.token);
   const currentUser = useAuthStore((s) => s.user);
   const eventId = useEventStore((s) => s.eventId);
@@ -80,15 +86,19 @@ export default function UsersPage() {
   const [form, setForm] = useState({
     email: '',
     name: '',
-    password: '',
     phone: '',
     globalRole: 'COORDINATOR',
   });
+  /** The invite link for a user just created. */
+  const [invite, setInvite] = useState<AuthLink | null>(null);
+  /** Whose sign-in actions are open. */
+  const [openUser, setOpenUser] = useState<string | null>(null);
 
   /** Pending dropdown selections, keyed by userId. Falls back to the saved role. */
   const [roleChoice, setRoleChoice] = useState<Record<string, string>>({});
 
   const canManage = ROLES_THAT_MANAGE_USERS.includes(currentUser?.role ?? '');
+  const { summaries, reload: reloadSecurity } = useUserSecurity(canManage ? users.map((u) => u.id) : []);
 
   const loadUsers = useCallback(async () => {
     if (!token) return;
@@ -163,31 +173,37 @@ export default function UsersPage() {
     }
   };
 
+  /** Create the account, then its invite link: the person chooses their own password with it. */
   const createUser = async () => {
-    if (!form.email || !form.name || !form.password) {
-      setError('Email, name, and password are all required.');
+    if (!form.email || !form.name) {
+      setError('Email and name are required.');
       return;
     }
-    if (form.password.length < 8) {
-      setError('Password must be at least 8 characters.');
-      return;
+    if (!token) return;
+    setBusy('create');
+    setError(null);
+    setNotice(null);
+    setInvite(null);
+    try {
+      const res = await createClient(token)
+        .mutation(CREATE_USER_MUTATION, {
+          input: { email: form.email.trim(), name: form.name.trim(), phone: form.phone.trim() || undefined, globalRole: form.globalRole },
+        })
+        .toPromise();
+      if (res.error) {
+        setError(cleanError(res.error.message));
+        return;
+      }
+      const created = res.data.createUser;
+      setInvite(await auth.admin.inviteLink(created.id));
+      setForm({ email: '', name: '', phone: '', globalRole: 'COORDINATOR' });
+      setShowCreate(false);
+      await loadAll();
+    } catch (e: any) {
+      setError(e?.message ?? 'Something went wrong');
+    } finally {
+      setBusy(null);
     }
-    await run(
-      'create',
-      CREATE_USER_MUTATION,
-      {
-        input: {
-          email: form.email.trim(),
-          name: form.name.trim(),
-          password: form.password,
-          phone: form.phone.trim() || undefined,
-          globalRole: form.globalRole,
-        },
-      },
-      `Created ${form.email.trim()}.`,
-    );
-    setForm({ email: '', name: '', password: '', phone: '', globalRole: 'COORDINATOR' });
-    setShowCreate(false);
   };
 
   const assignRole = (user: User) => {
@@ -211,27 +227,6 @@ export default function UsersPage() {
       `Removed ${user.name || user.email} from ${event?.name ?? 'this event'}.`,
       'roles',
     );
-  };
-
-  const resetPassword = (user: User) => {
-    const newPassword = window.prompt(`New password for ${user.email}:`);
-    if (!newPassword) return;
-    if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters.');
-      return;
-    }
-    return run(
-      `reset-${user.id}`,
-      RESET_USER_PASSWORD_MUTATION,
-      { userId: user.id, newPassword },
-      `Password reset for ${user.email}.`,
-      'none',
-    );
-  };
-
-  const deleteUser = (user: User) => {
-    if (!window.confirm(`Delete ${user.email}? This cannot be undone.`)) return;
-    return run(`delete-${user.id}`, DELETE_USER_MUTATION, { userId: user.id }, `Deleted ${user.email}.`);
   };
 
   if (!canManage) {
@@ -307,21 +302,6 @@ export default function UsersPage() {
             </div>
             <div>
               <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                Temporary password
-              </label>
-              <input
-                type="text"
-                className={`mt-1 ${inputClass}`}
-                value={form.password}
-                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                placeholder="At least 8 characters"
-              />
-              <p className="mt-1 text-[11px] text-slate-500">
-                Share this with the person and ask them to change it.
-              </p>
-            </div>
-            <div>
-              <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
                 Phone (optional)
               </label>
               <input
@@ -346,13 +326,16 @@ export default function UsersPage() {
               </select>
             </div>
           </div>
+          <p className="mt-4 text-xs text-slate-500">
+            No password to set: you&apos;ll get an invite link to send them, and they choose their own.
+          </p>
           <div className="mt-5 flex gap-3 border-t border-dark-600 pt-4">
             <button type="button"
               onClick={createUser}
               disabled={busy === 'create'}
               className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:bg-accent/90 disabled:opacity-50"
             >
-              {busy === 'create' ? 'Creating…' : 'Create user'}
+              {busy === 'create' ? 'Creating…' : 'Create and get invite link'}
             </button>
             <button type="button"
               onClick={() => setShowCreate(false)}
@@ -363,6 +346,16 @@ export default function UsersPage() {
           </div>
         </div>
       )}
+
+      {invite && (
+        <div className="mb-6">
+          <LinkBox link={invite} onClose={() => setInvite(null)} />
+        </div>
+      )}
+
+      <div className="mb-6">
+        <AuthRequestsPanel onChanged={() => { loadAll(); reloadSecurity(); }} />
+      </div>
 
       <div className="overflow-hidden rounded-xl border border-dark-600 bg-dark-800/50">
         <table className="w-full text-left">
@@ -382,13 +375,15 @@ export default function UsersPage() {
               const isDirty = savedRole !== undefined && selected !== savedRole;
 
               return (
-                <tr key={user.id} className="border-b border-dark-600/50 last:border-0">
+                <Fragment key={user.id}>
+                <tr className="border-b border-dark-600/50 last:border-0">
                   <td className="px-5 py-4">
                     <p className="text-sm font-medium text-white">
                       {user.name || <span className="text-slate-500">No name set</span>}
                       {isSelf && <span className="ml-2 text-[11px] text-slate-500">you</span>}
                     </p>
                     <p className="text-xs text-slate-400">{user.email}</p>
+                    <div className="mt-1"><UserSecurityBadges summary={summaries[user.id]} /></div>
                   </td>
                   <td className="px-5 py-4">
                     <span
@@ -444,26 +439,30 @@ export default function UsersPage() {
                       </button>
                     </div>
                   </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <button type="button"
-                        onClick={() => resetPassword(user)}
-                        disabled={busy === `reset-${user.id}`}
-                        className="rounded-lg border border-dark-500 bg-dark-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-dark-600 disabled:opacity-40"
-                      >
-                        Reset password
-                      </button>
-                      <button type="button"
-                        onClick={() => deleteUser(user)}
-                        disabled={isSelf || busy === `delete-${user.id}`}
-                        title={isSelf ? 'You cannot delete your own account' : undefined}
-                        className="rounded-lg border border-red-500/20 bg-red-500/[0.06] px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-30"
-                      >
-                        Delete
-                      </button>
-                    </div>
+                  <td className="px-5 py-4 text-right">
+                    <button type="button"
+                      onClick={() => setOpenUser(openUser === user.id ? null : user.id)}
+                      aria-expanded={openUser === user.id}
+                      className="rounded-lg border border-dark-500 bg-dark-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-dark-600"
+                    >
+                      {openUser === user.id ? 'Close' : 'Sign-in…'}
+                    </button>
                   </td>
                 </tr>
+                {openUser === user.id && (
+                  <tr className="border-b border-dark-600/50 bg-dark-900/40">
+                    <td colSpan={4} className="px-5 py-4">
+                      <UserSecurityActions
+                        user={user}
+                        summary={summaries[user.id]}
+                        isSelf={isSelf}
+                        onChanged={() => reloadSecurity()}
+                        onDeleted={() => { setOpenUser(null); setNotice(`Deleted ${user.email}.`); loadAll(); }}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

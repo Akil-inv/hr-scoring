@@ -107,10 +107,15 @@ export default function Sidebar() {
             <p className="text-[10px] text-[#7c3aed] font-semibold uppercase tracking-wider">{user?.role}</p>
           </div>
         </div>
-        <button type="button" onClick={signOut}
-          className="text-[12px] text-[#4a5568] hover:text-[#ef4444] transition-colors">
-          Sign out
-        </button>
+        <div className="flex items-center gap-4">
+          <Link href="/dashboard/account" className="text-[12px] text-[#8694a8] hover:text-white transition-colors">
+            My account
+          </Link>
+          <button type="button" onClick={signOut}
+            className="text-[12px] text-[#4a5568] hover:text-[#ef4444] transition-colors">
+            Sign out
+          </button>
+        </div>
       </div>
     </aside>
   );

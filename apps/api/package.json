@@ -15,6 +15,7 @@
     "test:cov": "jest --coverage"
   },
   "dependencies": {
+    "@akil-inv/auth-kit": "file:vendor/akil-inv-auth-kit-0.1.0.tgz",
     "@apollo/server": "^4.11.0",
     "@aws-sdk/client-kms": "^3.1146.0",
     "@aws-sdk/client-ses": "^3.1095.0",

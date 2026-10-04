@@ -7,6 +7,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { join } from 'path';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
+import { authKitModule } from './auth/auth-kit';
 import { AuditModule } from './audit/audit.module';
 import { EventsModule } from './events/events.module';
 import { TracksModule } from './tracks/tracks.module';
@@ -143,6 +144,7 @@ import { GqlThrottlerGuard } from './common/gql-throttler.guard';
       context: ({ req, res }: { req: Request; res: Response }) => ({ req, res }),
     }),
     PrismaModule,
+    authKitModule,
     AuthModule,
     AuditModule,
     EventsModule,

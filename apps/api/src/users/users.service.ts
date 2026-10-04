@@ -1,23 +1,29 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async createUser(input: { email: string; password: string; name: string; phone?: string; globalRole?: string }) {
-    const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
+  /**
+   * A new account, without a password: the admin then copies its invite link
+   * (auth-kit), with which the person chooses their own password.
+   */
+  async createUser(input: { email: string; name: string; phone?: string; globalRole?: string }) {
+    const email = input.email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new BadRequestException('Enter a valid email address.');
+    const existing = await this.prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
     if (existing) throw new ConflictException('Email already registered');
-    const passwordHash = await bcrypt.hash(input.password, 10);
     return this.prisma.user.create({
-      data: { email: input.email, passwordHash, name: input.name || '', phone: input.phone || null, role: (input.globalRole as any) || 'COORDINATOR' },
+      data: { email, passwordHash: '', name: input.name || '', phone: input.phone || null, role: (input.globalRole as any) || 'COORDINATOR' },
       select: { id: true, email: true, name: true, role: true, createdAt: true },
     });
   }
 
   async listUsers() {
     return this.prisma.user.findMany({
+      // Deleted accounts that had to be kept (anonymised) for their records.
+      where: { NOT: { email: { endsWith: '@deleted.invalid' } } },
       select: { id: true, email: true, name: true, role: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -72,13 +78,4 @@ export class UsersService {
     return eventUsers.map((eu: any) => ({ ...eu.event, role: eu.role }));
   }
 
-  async deleteUser(userId: string) {
-    await this.prisma.eventUser.deleteMany({ where: { userId } });
-    return this.prisma.user.delete({ where: { id: userId } });
-  }
-
-  async resetPassword(userId: string, newPassword: string) {
-    const passwordHash = await bcrypt.hash(newPassword, 10);
-    return this.prisma.user.update({ where: { id: userId }, data: { passwordHash }, select: { id: true, email: true } });
-  }
 }

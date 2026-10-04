@@ -35,7 +35,8 @@ export class EventUserEntity {
 @InputType()
 export class CreateUserInput {
   @Field() email!: string;
-  @Field() password!: string;
+  /** Ignored: new accounts choose their own password from an invite link. Kept so older clients still work. */
+  @Field({ nullable: true }) password?: string;
   @Field() name!: string;
   @Field({ nullable: true }) phone?: string;
   @Field({ nullable: true }) globalRole?: string;
@@ -84,19 +85,8 @@ export class UsersResolver {
     return true;
   }
 
-  @Roles('SUPER_ADMIN')
-  @Mutation(() => Boolean)
-  async deleteUser(@Args('userId') userId: string) {
-    await this.usersService.deleteUser(userId);
-    return true;
-  }
-
-  @Roles('SUPER_ADMIN')
-  @Mutation(() => Boolean)
-  async resetUserPassword(@Args('userId') userId: string, @Args('newPassword') newPassword: string) {
-    await this.usersService.resetPassword(userId, newPassword);
-    return true;
-  }
+  // Deleting users and resetting passwords are in auth-kit (/api/auth/admin/...):
+  // reset links instead of admin-set passwords, and sessions end.
 
   @Query(() => [MyEvent])
   async myEvents(@CurrentUser() user: any) {

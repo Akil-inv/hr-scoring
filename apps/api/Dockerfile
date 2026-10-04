@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+# Vendored packages (auth-kit) that package.json installs from a file.
+COPY vendor ./vendor
 RUN npm ci --legacy-peer-deps --include=dev
 
 COPY . .

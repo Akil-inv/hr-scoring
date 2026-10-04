@@ -1,6 +1,6 @@
 import type { Config } from 'tailwindcss';
 const config: Config = {
-  content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
+  content: ['./src/**/*.{js,ts,jsx,tsx,mdx}', './node_modules/@akil-inv/auth-kit/dist/react/**/*.js'],
   theme: {
     extend: {
       fontFamily: {

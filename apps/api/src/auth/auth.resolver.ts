@@ -1,31 +1,15 @@
-import { Resolver, Mutation, Query, Args } from '@nestjs/graphql';
-import { UseGuards } from '@nestjs/common';
+import { Resolver, Query } from '@nestjs/graphql';
 import { AuthService } from './auth.service';
-import { LoginResponse, UserResponse, LoginInput, RegisterInput } from './auth.types';
-import { JwtAuthGuard } from './jwt-auth.guard';
-import { RolesGuard } from './roles.guard';
-import { Roles } from './roles.decorator';
+import { UserResponse } from './auth.types';
 import { CurrentUser } from './current-user.decorator';
-import { Public } from './public.decorator';
 
+/**
+ * Signing in, passwords, invites and two-factor are REST routes under
+ * /api/auth (auth-kit; see auth-kit.ts). GraphQL keeps only "who am I".
+ */
 @Resolver()
 export class AuthResolver {
   constructor(private authService: AuthService) {}
-
-  @Public()
-  @Mutation(() => LoginResponse)
-  async login(@Args('input') input: LoginInput) {
-    return this.authService.login(input.email, input.password);
-  }
-
-  @Roles('ADMIN')
-  @Mutation(() => UserResponse)
-  async register(
-    @Args('input') input: RegisterInput,
-    @CurrentUser() user: any,
-  ) {
-    return this.authService.register(input.email, input.password, input.role, user.role);
-  }
 
   @Query(() => UserResponse)
   async me(@CurrentUser() user: any) {

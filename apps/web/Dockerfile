@@ -3,6 +3,8 @@ FROM node:20-bookworm-slim
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+# Vendored packages (auth-kit) that package.json installs from a file.
+COPY vendor ./vendor
 RUN npm ci
 
 COPY . .
