@@ -35,7 +35,7 @@ concurrency:
 env:
   # The branch production is deployed from. Pull requests target it.
   PRODUCT_BRANCH: feature/interview-availability
-  AGENT: ./tools/patchkit/akil-inv-patch-kit-agent-0.1.1.tgz
+  AGENT: ./tools/patchkit/akil-inv-patch-kit-agent-0.1.2.tgz
 
 jobs:
   scan:
