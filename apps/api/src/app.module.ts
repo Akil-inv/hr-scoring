@@ -60,6 +60,10 @@ import { GqlThrottlerGuard } from './common/gql-throttler.guard';
       playground: false,
       graphiql: process.env.NODE_ENV !== 'production',
       introspection: process.env.NODE_ENV !== 'production',
+      // Apollo Server 5 answers HTTP 400 when a variable has the wrong type;
+      // 4 answered 200 with the error in the body. Two pages read responses
+      // by hand, so keep the old status.
+      status400ForVariableCoercionErrors: false,
       subscriptions: { 'graphql-ws': true },
       /**
        * What a caller sees when something goes wrong.
