@@ -15,6 +15,8 @@
 #                               and nothing since reverts it
 #
 #   DEPLOY_BRANCH=main ./deploy.sh   deploy a different branch
+#   RUNNING_COMMIT=<sha> ./deploy.sh  the commit that is running now, if the code
+#                                     on disk was changed by hand since the last deploy
 #
 # This server also runs the live hackathon platform. Everything here touches
 # only the hr-scoring Compose project; the live containers are never named,
@@ -36,7 +38,17 @@
 
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Run from a private copy: the pull below replaces this file, and bash reads a
+# script as it goes, so changing it underneath a running deploy is unsafe.
+if [ -z "${DEPLOY_SH_COPY:-}" ]; then
+  _root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  _copy="$(mktemp "${TMPDIR:-/tmp}/hr-scoring-deploy.XXXXXX")"
+  cp "$_root/deploy.sh" "$_copy"
+  DEPLOY_SH_COPY="$_copy" DEPLOY_ROOT="$_root" exec bash "$_copy" "$@"
+fi
+trap 'rm -f "$DEPLOY_SH_COPY"' EXIT
+
+ROOT="${DEPLOY_ROOT}"
 BACKUPS="${BACKUPS:-$ROOT/../backups}"
 RELEASES="${RELEASES:-$ROOT/../releases}"
 STATE="$RELEASES/current.env"
@@ -342,7 +354,10 @@ fi
 
 # ── 3. pull ────────────────────────────────────────────────────────────────
 
-BEFORE=$(git rev-parse HEAD)
+# The release running now: what the last deploy recorded, unless told otherwise.
+RUNNING="${RUNNING_COMMIT:-}"
+if [ -z "$RUNNING" ] && [ -f "$STATE" ]; then RUNNING=$(. "$STATE"; echo "$RELEASE_COMMIT"); fi
+BEFORE=$(git rev-parse "${RUNNING:-HEAD}" 2>/dev/null) || { err "unknown commit: $RUNNING"; exit 1; }
 if [ "$PULL" = 1 ]; then
   step "pull $BRANCH"
   git checkout -q "$BRANCH" 2>/dev/null || git checkout -q -b "$BRANCH" "origin/$BRANCH"
