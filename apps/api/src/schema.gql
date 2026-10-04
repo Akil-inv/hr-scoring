@@ -702,6 +702,7 @@ type ScoringTemplateEntity {
   maxTotal: Int!
   name: String!
   status: ScoringTemplateStatus!
+  scale: String!
 }
 
 enum ScoringTemplateStatus {

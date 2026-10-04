@@ -40,6 +40,8 @@ export class ScoringTemplateEntity {
   @Field() createdAt!: Date;
   @Field(() => [ScoringCriterionEntity]) criteria!: ScoringCriterionEntity[];
   @Field(() => Int) criteriaTotal!: number;
+  /** POINTS (categories adding up to the total) or RATING (e.g. 1-5 per dimension). */
+  @Field({ defaultValue: 'POINTS' }) scale!: string;
 }
 
 @InputType()

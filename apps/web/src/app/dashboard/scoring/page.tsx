@@ -112,14 +112,21 @@ export default function ScoringPage() {
     return { total, done, steppedOut, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
   };
 
+  // Rating rubrics (e.g. LAP 1-5): a judge's score is their average rating,
+  // and the candidate's is the average of those, out of the top rating.
+  // Points rubrics: totals out of 100, as before.
+  const rating = template?.scale === 'RATING';
+  const scoreMax = rating ? Math.max(...(template?.criteria ?? []).map((c: any) => c.maxScore), 5) : 100;
+  const judgeScore = (sc: any) => {
+    const rows = sc.criterionScores || [];
+    const total = rows.reduce((s: number, cs: any) => s + (cs.score || 0), 0);
+    return rating ? (rows.length ? total / rows.length : 0) : total;
+  };
+  const fmtAvg = (v: number) => (rating ? v.toFixed(1) : String(Math.round(v)));
   const getTeamAvgScore = (team: any) => {
     const submitted = team.scorecards.filter((s: any) => ['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(s.status));
     if (submitted.length === 0) return null;
-    const total = submitted.reduce((sum: number, sc: any) => {
-      const scScore = (sc.criterionScores || []).reduce((s: number, cs: any) => s + (cs.score || 0), 0);
-      return sum + scScore;
-    }, 0);
-    return Math.round(total / submitted.length);
+    return fmtAvg(submitted.reduce((sum: number, sc: any) => sum + judgeScore(sc), 0) / submitted.length);
   };
 
   return (
@@ -216,7 +223,7 @@ export default function ScoringPage() {
                     </div>
                     <div style={{textAlign:'right'}}>
                       <div style={{fontSize:13,fontWeight:500,color: allDone ? '#10b981' : '#fff'}}>{prog.done}/{prog.total}</div>
-                      {avg !== null && <div style={{fontSize:11,color:'#6b7a90'}}>{avg}/100</div>}
+                      {avg !== null && <div style={{fontSize:11,color:'#6b7a90'}}>{avg}/{scoreMax}</div>}
                     </div>
                   </div>
                   <div className="sc-team-bar">
@@ -243,7 +250,7 @@ export default function ScoringPage() {
                   <div style={{textAlign:'right'}}>
                     {(() => { const avg = getTeamAvgScore(selTeam); const prog = getTeamProgress(selTeam); return (
                       <>
-                        {avg !== null && <div style={{fontSize:24,fontWeight:600,color:'#fff'}}>{avg}<span style={{fontSize:14,color:'#6b7a90'}}>/100</span></div>}
+                        {avg !== null && <div style={{fontSize:24,fontWeight:600,color:'#fff'}}>{avg}<span style={{fontSize:14,color:'#6b7a90'}}>/{scoreMax}</span></div>}
                         <div style={{fontSize:12,color:'#6b7a90'}}>
                           {prog.done} of {prog.total} judges submitted
                           {prog.steppedOut > 0 && (
@@ -261,7 +268,7 @@ export default function ScoringPage() {
                 {selTeam.scorecards.map((sc: any) => {
                   const scStatus = getStatusColor(sc.status);
                   const isSubmitted = ['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(sc.status);
-                  const scTotal = (sc.criterionScores || []).reduce((s: number, cs: any) => s + (cs.score || 0), 0);
+                  const scTotal = fmtAvg(judgeScore(sc));
                   return (
                     <div className="sc-judge" key={sc.id}>
                       <div className="sc-judge-hdr">
@@ -324,7 +331,7 @@ export default function ScoringPage() {
                     <div style={{marginTop:16,padding:16,borderRadius:10,background:'rgba(16,185,129,0.06)',border:'1px solid rgba(16,185,129,0.15)'}}>
                       <div style={{fontSize:13,color:'#10b981',fontWeight:500,marginBottom:4}}>All judges submitted</div>
                       <div style={{fontSize:13,color:'#94a3b8'}}>
-                        Average score: <span style={{color:'#fff',fontWeight:500}}>{avg}/100</span> from {prog.total} judges
+                        {rating ? 'Average rating' : 'Average score'}: <span style={{color:'#fff',fontWeight:500}}>{avg}/{scoreMax}</span> from {prog.total} judges
                       </div>
                     </div>
                   );

@@ -42,7 +42,7 @@ export const CONFLICTS_QUERY = `query Conflicts($eventId: String!) { conflicts(e
 export const SCORING_TEMPLATES_QUERY = `
   query ScoringTemplates($eventId: String!) {
     scoringTemplates(eventId: $eventId) {
-      id name description maxTotal status criteriaTotal
+      id name description maxTotal status criteriaTotal scale
       criteria { id name maxScore weight displayOrder guidanceText requiresComment scoringAnchors }
     }
   }
