@@ -37,7 +37,7 @@ function WizardSchedulePage() {
   const { data: evData } = useQuery<any>(EVENTS_QUERY);
   const selectedEventId = useEventId();
   const event =
-    evData?.events?.find((e: any) => e.id === selectedEventId) ?? evData?.events?.[0];
+    evData?.events?.find((e: any) => e.id === selectedEventId);
   const eventId = event?.id;
 
   const { data: teamData } = useQuery<any>(TEAMS_QUERY, eventId ? { eventId } : undefined);

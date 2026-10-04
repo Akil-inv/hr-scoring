@@ -7,8 +7,10 @@ import {
   LoadRubricResult, ScoringLockState,
 } from './scoring-templates.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
 
+@EventScope({ id: 'template' })
 @Resolver(() => ScoringTemplateEntity)
 export class ScoringTemplatesResolver {
   constructor(private service: ScoringTemplatesService) {}
@@ -86,6 +88,7 @@ export class ScoringTemplatesResolver {
   }
 
   @Roles('ADMIN')
+  @EventScope({ id: 'criterion' })
   @Mutation(() => ScoringCriterionEntity)
   async updateCriterion(
     @Args('id') id: string,
@@ -96,6 +99,7 @@ export class ScoringTemplatesResolver {
   }
 
   @Roles('ADMIN')
+  @EventScope({ id: 'criterion' })
   @Mutation(() => Boolean)
   async removeCriterion(
     @Args('id') id: string,
@@ -105,6 +109,7 @@ export class ScoringTemplatesResolver {
   }
 
   @Roles('ADMIN')
+  @EventScope({ id: 'criterion' })
   @Mutation(() => Boolean)
   async reorderCriteria(
     @Args({ name: 'inputs', type: () => [ReorderCriterionInput] }) inputs: ReorderCriterionInput[],

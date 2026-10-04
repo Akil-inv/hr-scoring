@@ -2,8 +2,10 @@ import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import { JudgesService } from './judges.service';
 import { JudgeEntity, JudgeAvailabilityEntity, JudgeExpertiseEntity, CreateJudgeInput, UpdateJudgeInput, SetJudgeAvailabilityInput, SetJudgeExpertiseInput } from './judges.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
 
+@EventScope({ id: 'judge' })
 @Resolver(() => JudgeEntity)
 export class JudgesResolver {
   constructor(private judgesService: JudgesService) {}

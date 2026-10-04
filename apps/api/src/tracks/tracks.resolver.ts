@@ -2,8 +2,10 @@ import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import { TracksService } from './tracks.service';
 import { TrackEntity, CreateTrackInput, UpdateTrackInput, ReorderTrackInput } from './tracks.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
 
+@EventScope({ id: 'track' })
 @Resolver(() => TrackEntity)
 export class TracksResolver {
   constructor(private tracksService: TracksService) {}

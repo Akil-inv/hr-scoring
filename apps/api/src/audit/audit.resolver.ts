@@ -2,6 +2,7 @@ import { Resolver, Query, Args } from '@nestjs/graphql';
 import { AuditService } from './audit.service';
 import { AuditLogEntry } from './audit.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope } from '../auth/event-access';
 
 @Resolver()
 export class AuditResolver {
@@ -17,6 +18,8 @@ export class AuditResolver {
     return this.auditService.findByEvent(eventId, take, skip);
   }
 
+  // Not used by the web app; an entity id alone can't say which event it is in.
+  @EventScope({ refs: () => 'super-admin-only' })
   @Roles('ADMIN', 'AUDITOR')
   @Query(() => [AuditLogEntry])
   async auditLogsByEntity(

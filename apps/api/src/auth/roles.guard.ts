@@ -42,7 +42,10 @@ export class RolesGuard implements CanActivate {
 
     if (role === SUPER_ADMIN) return true;
 
-    return requiredRoles.includes(role);
+    // On an event, the caller's role there is what counts (EventScopeGuard
+    // put it on the request); elsewhere, their platform role.
+    const eventRole = this.getEventRole(context);
+    return requiredRoles.includes(eventRole ?? role);
   }
 
   /**
@@ -53,6 +56,11 @@ export class RolesGuard implements CanActivate {
    * `req`. That only stayed hidden because no REST controller carries @Roles()
    * today — adding one would have produced a 500 rather than a 403.
    */
+  private getEventRole(context: ExecutionContext): string | null {
+    if (context.getType<'graphql' | 'http'>() !== 'graphql') return null;
+    return GqlExecutionContext.create(context).getContext()?.req?.eventAccess?.role ?? null;
+  }
+
   private getUser(context: ExecutionContext): RequestUser {
     if (context.getType<'graphql' | 'http'>() === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context).getContext();

@@ -6,6 +6,7 @@ import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { APP_GUARD } from '@nestjs/core';
 import { join } from 'path';
 import { PrismaModule } from './prisma/prisma.module';
+import { EventAccessModule } from './auth/event-access';
 import { AuthModule } from './auth/auth.module';
 import { authKitModule } from './auth/auth-kit';
 import { AuditModule } from './audit/audit.module';
@@ -31,6 +32,7 @@ import { SetupUploadModule } from './setup-upload/setup-upload.module';
 import { InterviewScheduleModule } from './interview-schedule/interview-schedule.module';
 import { ReviewModule } from './review/review.module';
 import { DocumentsModule } from './documents/documents.module';
+import { EventControlModule } from './event-control/event-control.module';
 import { HealthResolver } from './health.resolver';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -41,6 +43,7 @@ import { GqlThrottlerGuard } from './common/gql-throttler.guard';
   controllers: [HealthController, EncryptionController],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    EventAccessModule,
     /**
      * Rate limiting.
      *
@@ -175,6 +178,7 @@ import { GqlThrottlerGuard } from './common/gql-throttler.guard';
     SetupUploadModule,
     InterviewScheduleModule,
     ReviewModule,
+    EventControlModule,
   ],
   providers: [
     HealthResolver,
@@ -183,11 +187,10 @@ import { GqlThrottlerGuard } from './common/gql-throttler.guard';
     // throws on req.ip before any other guard runs.
     { provide: APP_GUARD, useClass: GqlThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: RolesGuard },
-    // After RolesGuard: role first, then whether this user may touch this
-    // event. A coordinator who fails the role check should be told that rather
-    // than being told they are on the wrong event.
+    // Event first: it finds the caller's role on the event the operation is
+    // about, and RolesGuard then checks @Roles() against that role.
     { provide: APP_GUARD, useClass: EventScopeGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}

@@ -45,7 +45,7 @@ function WizardDashboardPage() {
   const { data: evData } = useQuery<any>(EVENTS_QUERY);
   const selectedEventId = useEventId();
   const event =
-    evData?.events?.find((e: any) => e.id === selectedEventId) ?? evData?.events?.[0];
+    evData?.events?.find((e: any) => e.id === selectedEventId);
   const eventId = event?.id;
   const { data: sessionData } = useQuery<any>(SESSIONS_QUERY, eventId ? { eventId } : undefined);
   const { data: judgeData } = useQuery<any>(JUDGES_QUERY, eventId ? { eventId } : undefined);

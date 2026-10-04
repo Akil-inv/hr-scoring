@@ -8,11 +8,10 @@ import { useEventStore, type EventSummary } from '@/lib/event-store';
 import { EVENTS_QUERY, MY_EVENTS_QUERY } from '@/lib/queries';
 
 /**
- * Set to true once UsersModule is registered in app.module.ts and `myEvents`
- * shows up in schema.gql. Until then the graph has no myEvents field and the
- * query fails, so we read the unscoped `events` list.
+ * The events this person is on (super admins: all), with their role on each.
+ * Events marked done are only a record now: they stay in Event Control, not here.
  */
-const USE_MY_EVENTS = false;
+const USE_MY_EVENTS = true;
 
 const STATUS_TONE: Record<string, string> = {
   ACTIVE: 'bg-emerald-500/10 text-emerald-300 ring-emerald-400/20',
@@ -38,6 +37,7 @@ export default function EventSelector() {
   const loaded = useEventStore((s) => s.loaded);
   const setEvents = useEventStore((s) => s.setEvents);
   const selectEvent = useEventStore((s) => s.selectEvent);
+  const version = useEventStore((s) => s.version);
 
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -59,7 +59,7 @@ export default function EventSelector() {
           return;
         }
         const list: EventSummary[] =
-          (USE_MY_EVENTS ? res.data?.myEvents : res.data?.events) ?? [];
+          ((USE_MY_EVENTS ? res.data?.myEvents : res.data?.events) ?? []).filter((e: any) => !e.doneAt);
         setEvents(list);
         setError(null);
       })
@@ -73,7 +73,7 @@ export default function EventSelector() {
     return () => {
       cancelled = true;
     };
-  }, [token, setEvents]);
+  }, [token, setEvents, version]);
 
   useEffect(() => {
     const cleanup = load();
@@ -132,12 +132,12 @@ export default function EventSelector() {
     return (
       <div className="px-3 pt-3">
         <Link
-          href="/dashboard/upload"
+          href="/dashboard/events"
           className={`${shell} block hover:border-[#7c3aed]/30 hover:bg-[#7c3aed]/[0.06]`}
         >
           <p className="text-[10px] uppercase tracking-[0.15em] text-[#4a5568]">Event</p>
-          <p className="mt-1 text-[13px] font-medium text-[#8694a8]">No events yet</p>
-          <p className="mt-0.5 text-[11px] text-[#a78bfa]">Set one up &rarr;</p>
+          <p className="mt-1 text-[13px] font-medium text-[#8694a8]">No current events</p>
+          <p className="mt-0.5 text-[11px] text-[#a78bfa]">Open Event Control &rarr;</p>
         </Link>
       </div>
     );
@@ -217,8 +217,8 @@ export default function EventSelector() {
                     {e.name}
                   </span>
                   {e.role && (
-                    <span className="block text-[10px] uppercase tracking-wider text-[#4a5568]">
-                      {e.role}
+                    <span className="block text-[10px] uppercase tracking-wider text-[#6b7a90]">
+                      {e.role.replace('_', ' ')}
                     </span>
                   )}
                 </span>
@@ -234,11 +234,11 @@ export default function EventSelector() {
           })}
 
           <Link
-            href="/dashboard/upload"
+            href="/dashboard/events"
             onClick={() => setOpen(false)}
             className="mt-1 block border-t border-white/[0.06] px-2.5 pb-1 pt-2 text-[12px] text-[#6b7a90] hover:text-[#a78bfa]"
           >
-            Set up a new event
+            All events (Event Control)
           </Link>
         </div>
       )}

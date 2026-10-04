@@ -1,8 +1,10 @@
 import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import { UsersService } from './users.service';
+import { EventControlService } from '../event-control/event-control.service';
 import { Roles } from '../auth/roles.decorator';
+import { NotEventScoped } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { ObjectType, Field, InputType } from '@nestjs/graphql';
+import { ObjectType, Field, InputType, Int } from '@nestjs/graphql';
 
 @ObjectType()
 export class UserEntity {
@@ -12,11 +14,23 @@ export class UserEntity {
   @Field() role!: string;
 }
 
+/** An event the caller is on, with what the pages need to work on it, and their role there. */
 @ObjectType()
 export class MyEvent {
   @Field() id!: string;
   @Field() name!: string;
+  @Field({ nullable: true }) description?: string;
+  @Field({ nullable: true }) location?: string;
+  @Field() timezone!: string;
+  @Field() startDate!: Date;
+  @Field() endDate!: Date;
   @Field() status!: string;
+  @Field() setupMode!: string;
+  @Field(() => Int) sessionDurationMinutes!: number;
+  @Field(() => Int) minJudgesPerTeam!: number;
+  @Field(() => Int) maxJudgesPerTeam!: number;
+  @Field({ nullable: true }) doneAt?: Date;
+  /** Role on this event: ADMIN, COORDINATOR, PANEL_CHAIR or AUDITOR (super admins: ADMIN). */
   @Field() role!: string;
 }
 
@@ -51,14 +65,16 @@ export class AssignEventRoleInput {
 
 @Resolver()
 export class UsersResolver {
-  constructor(private usersService: UsersService) {}
+  constructor(private usersService: UsersService, private control: EventControlService) {}
 
+  @NotEventScoped()
   @Roles('SUPER_ADMIN')
   @Mutation(() => UserEntity)
   async createUser(@Args('input') input: CreateUserInput) {
     return this.usersService.createUser(input);
   }
 
+  @NotEventScoped()
   @Roles('SUPER_ADMIN')
   @Query(() => [UserEntity])
   async users() {
@@ -73,21 +89,22 @@ export class UsersResolver {
 
   @Roles('SUPER_ADMIN')
   @Mutation(() => Boolean)
-  async assignEventRole(@Args('input') input: AssignEventRoleInput) {
-    await this.usersService.assignToEvent(input.userId, input.eventId, input.role);
+  async assignEventRole(@Args('input') input: AssignEventRoleInput, @CurrentUser() user: any) {
+    await this.control.assign(input.eventId, input.userId, input.role, user);
     return true;
   }
 
   @Roles('SUPER_ADMIN')
   @Mutation(() => Boolean)
-  async removeEventRole(@Args('userId') userId: string, @Args('eventId') eventId: string) {
-    await this.usersService.removeFromEvent(userId, eventId);
+  async removeEventRole(@Args('userId') userId: string, @Args('eventId') eventId: string, @CurrentUser() user: any) {
+    await this.control.removePerson(eventId, userId, user);
     return true;
   }
 
   // Deleting users and resetting passwords are in auth-kit (/api/auth/admin/...):
   // reset links instead of admin-set passwords, and sessions end.
 
+  @NotEventScoped()
   @Query(() => [MyEvent])
   async myEvents(@CurrentUser() user: any) {
     return this.usersService.getMyEvents(user.sub);

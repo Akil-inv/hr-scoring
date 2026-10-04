@@ -1,17 +1,21 @@
 'use client';
 
 import { useQuery } from '@/lib/use-graphql';
-import { AUDIT_LOGS_QUERY, EVENTS_QUERY } from '@/lib/queries';
+import { useEventId } from '@/lib/event-store';
+import { AUDIT_LOGS_QUERY } from '@/lib/queries';
 import StatusBadge from '@/components/status-badge';
 
 export default function AuditPage() {
-  const { data: evData } = useQuery<any>(EVENTS_QUERY);
-  const eventId = evData?.events?.[0]?.id;
+  // The event chosen in the sidebar.
+  const eventId = useEventId();
   const { data, loading } = useQuery<any>(AUDIT_LOGS_QUERY, eventId ? { eventId, take: 50, skip: 0 } : undefined);
 
   const logs = data?.auditLogsByEvent || [];
 
-  if (loading || !eventId) {
+  if (!eventId) {
+    return <div className="py-12 text-center text-sm text-slate-400">Choose an event in the sidebar.</div>;
+  }
+  if (loading) {
     return <div className="py-12 text-center text-sm text-slate-400">Loading...</div>;
   }
 

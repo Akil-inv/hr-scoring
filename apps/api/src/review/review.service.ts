@@ -640,14 +640,4 @@ export class ReviewService {
     return { fileName: `${base}-${date}-reports.zip`, zip: Buffer.from(zipSync(files, { level: 0 })), count: decided.length };
   }
 
-  /** REST calls skip the GraphQL scope guard; check event access here. */
-  async assertAccess(user: { sub?: string; role?: string } | undefined, eventId: string, roles: string[]) {
-    if (!user?.sub) throw new ForbiddenException('Sign in first.');
-    if (user.role === 'SUPER_ADMIN') return;
-    if (!roles.includes(user.role ?? '')) throw new ForbiddenException('Your role cannot do this.');
-    const assignments = await this.prisma.eventUser.count({ where: { userId: user.sub } });
-    if (assignments === 0) return;
-    const assigned = await this.prisma.eventUser.findUnique({ where: { userId_eventId: { userId: user.sub, eventId } } });
-    if (!assigned) throw new ForbiddenException('You are not assigned to this event. Ask a super admin to add you.');
-  }
 }

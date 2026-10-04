@@ -135,14 +135,21 @@ export class SetupUploadService {
       status: 'ACTIVE' as const,
       setupMode: 'UPLOAD' as const,
     };
+    // Setting up an event made in Event Control keeps the name, status and
+    // retention given there; a new event from a workbook starts active, as before.
+    const { name: _name, status: _status, ...keep } = eventData;
     const event = existingEventId
-      ? await tx.event.update({ where: { id: existingEventId }, data: eventData })
+      ? await tx.event.update({ where: { id: existingEventId }, data: keep })
       : await tx.event.create({ data: eventData });
     const eventId = event.id;
 
-    if (adminIds.length) {
+    // The person setting it up, and the admins the workbook names, are its admins.
+    const admins = [...new Set([userId, ...adminIds])];
+    const already = new Set((await tx.eventUser.findMany({ where: { eventId, userId: { in: admins } }, select: { userId: true } })).map((r) => r.userId));
+    const add = admins.filter((uid) => !already.has(uid));
+    if (add.length) {
       await tx.eventUser.createMany({
-        data: adminIds.map((uid) => ({ userId: uid, eventId, role: 'ADMIN' as const })),
+        data: add.map((uid) => ({ userId: uid, eventId, role: 'ADMIN' as const, addedById: userId })),
         skipDuplicates: true,
       });
     }

@@ -1,6 +1,7 @@
 import { Body, Controller, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SetupUploadService } from './setup-upload.service';
+import { EventAccessService, EventCheckedInHandler } from '../auth/event-access';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -14,20 +15,27 @@ const MAX_BYTES = 5 * 1024 * 1024;
  * replace that event's setup instead of creating a new event.
  */
 @Controller('api/setup-upload')
+@EventCheckedInHandler()
 export class SetupUploadController {
-  constructor(private service: SetupUploadService) {}
+  constructor(private service: SetupUploadService, private access: EventAccessService) {}
+
+  /** A new event: a platform admin. An existing one: an admin of that event. */
+  private async check(req: any, eventId: string | undefined) {
+    if (eventId) await this.access.assert(req.user, eventId, ['ADMIN']);
+    else SetupUploadService.assertMaySetUp(req.user);
+  }
 
   @Post('preview')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_BYTES } }))
   async preview(@UploadedFile() file: Express.Multer.File, @Body('eventId') eventId: string | undefined, @Req() req: any) {
-    SetupUploadService.assertMaySetUp(req.user);
+    await this.check(req, eventId || undefined);
     return this.service.preview(SetupUploadService.assertFile(file), eventId || undefined);
   }
 
   @Post('commit')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_BYTES } }))
   async commit(@UploadedFile() file: Express.Multer.File, @Body('eventId') eventId: string | undefined, @Req() req: any) {
-    SetupUploadService.assertMaySetUp(req.user);
+    await this.check(req, eventId || undefined);
     return this.service.commit(SetupUploadService.assertFile(file), req.user.sub, eventId || undefined);
   }
 }

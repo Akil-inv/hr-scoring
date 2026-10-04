@@ -3,9 +3,11 @@ import { RoomsService } from './rooms.service';
 import { TimeSlotsService } from './time-slots.service';
 import { RoomEntity, CreateRoomInput, UpdateRoomInput, TimeSlotEntity, GenerateTimeSlotsInput, RoomUnavailabilityEntity, OperationOk } from './rooms.types';
 import { Roles } from '../auth/roles.decorator';
+import { EventScope } from '../auth/event-access';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 
+@EventScope({ id: 'room' })
 @Resolver()
 export class RoomsResolver {
   constructor(
