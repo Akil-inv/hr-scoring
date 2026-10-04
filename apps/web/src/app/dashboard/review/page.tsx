@@ -102,7 +102,11 @@ function DayBar({ data, date, eventId, token, onChanged }: {
   if (!day) return null;
   const left = day.candidates - day.decided;
   const close = async () => {
-    if (!window.confirm(`Close ${dayLabel(date)}? Its scorecards lock and its judge links stop working. A single interview can still be reopened later with a reason.`)) return;
+    const open = day.openInterviews ?? 0;
+    const finishing = open > 0
+      ? `\n\n${open} interview${open === 1 ? ' is' : 's are'} still open in the Command Center. Closing the day marks ${open === 1 ? 'it' : 'them'} Completed (Did not attend: Cancelled).`
+      : '';
+    if (!window.confirm(`Close ${dayLabel(date)}? Its scorecards lock and its judge links stop working. A single interview can still be reopened later with a reason.${finishing}`)) return;
     setBusy(true); setMsg(null);
     try { await reviewAction(`/api/review/${eventId}/days/${date}/close`, token); onChanged(); }
     catch (e: any) { setMsg(e.message); }
@@ -121,6 +125,9 @@ function DayBar({ data, date, eventId, token, onChanged }: {
           <p className="text-sm text-slate-300">
             <span className="font-medium text-white">{day.decided} of {day.candidates}</span> decided on {dayLabel(date)}.
             {left > 0 ? ` ${left} still need a final decision (or Did not attend) before the day can close.` : ' Every candidate is decided.'}
+            {left === 0 && (day.openInterviews ?? 0) > 0 && (
+              <span className="text-slate-400"> {day.openInterviews} interview{day.openInterviews === 1 ? ' is' : 's are'} still open in the Command Center; closing the day completes {day.openInterviews === 1 ? 'it' : 'them'}.</span>
+            )}
           </p>
           {!data.event.closed && (
             <button type="button" onClick={close} disabled={busy || left > 0}

@@ -106,10 +106,15 @@ export type ReviewData = {
   maxTotal: number;
   days: {
     date: string; candidates: number; decided: number; ready: number;
+    /** Interviews not yet Completed or Cancelled in the Command Center; closing the day finishes them. */
+    openInterviews: number;
     closed: boolean; closedAt: Date | null; closedBy: string | null;
   }[];
   records: CandidateRecord[];
 };
+
+/** Command Center stages that mean the interview is over. */
+const FINISHED_STAGES = ['COMPLETED', 'CANCELLED'];
 
 function hhmm(d: Date, tz: string): string {
   return new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
@@ -275,11 +280,13 @@ export class ReviewService {
       });
     }
 
-    const byDay = new Map<string, { candidates: number; decided: number; ready: number }>();
+    const byDay = new Map<string, { candidates: number; decided: number; ready: number; openInterviews: number }>();
+    const stageOf = new Map(sessions.map((x) => [x.id, x.stage]));
     // Days closed or with candidates are listed.
     for (const r of records) {
-      const x = byDay.get(r.date) ?? { candidates: 0, decided: 0, ready: 0 };
+      const x = byDay.get(r.date) ?? { candidates: 0, decided: 0, ready: 0, openInterviews: 0 };
       x.candidates++;
+      if (!FINISHED_STAGES.includes(stageOf.get(r.sessionId) as string)) x.openInterviews++;
       if (r.state === 'DECIDED') x.decided++;
       if (r.state === 'READY') x.ready++;
       byDay.set(r.date, x);
@@ -521,6 +528,10 @@ export class ReviewService {
     }
     const now = new Date();
     const sessionIds = data.records.map((r) => r.sessionId);
+    const absent = data.records.filter((r) => r.decision?.decision === ABSENT).map((r) => r.sessionId);
+    const attended = sessionIds.filter((id) => !absent.includes(id));
+    let completed = 0;
+    let cancelled = 0;
     await this.prisma.$transaction(async (tx) => {
       const row = await tx.judgingDay.upsert({
         where: { eventId_date: { eventId, date: new Date(`${date}T00:00:00Z`) } },
@@ -535,12 +546,23 @@ export class ReviewService {
         where: { dayId: row.id, revokedAt: null },
         data: { revokedAt: now, revokedReason: 'Day closed' },
       });
+      // Every candidate has a final decision, so the interviews are over: the
+      // Command Center shows them Completed (Did not attend: Cancelled).
+      const unfinished = { stage: { notIn: FINISHED_STAGES as any } };
+      completed = (await tx.judgingSession.updateMany({
+        where: { id: { in: attended }, ...unfinished },
+        data: { stage: 'COMPLETED', actualEnd: now },
+      })).count;
+      cancelled = (await tx.judgingSession.updateMany({
+        where: { id: { in: absent }, ...unfinished },
+        data: { stage: 'CANCELLED' },
+      })).count;
     });
     await this.audit.log({
       userId, eventId, action: AuditAction.UPDATE, entityType: 'JudgingDay', entityId: date,
-      reason: `Day ${date} closed`, newValues: { candidates: data.records.length },
+      reason: `Day ${date} closed`, newValues: { candidates: data.records.length, interviewsCompleted: completed, interviewsCancelled: cancelled },
     });
-    return { date, closedAt: now, candidates: data.records.length };
+    return { date, closedAt: now, candidates: data.records.length, interviewsCompleted: completed, interviewsCancelled: cancelled };
   }
 
   /** Close the event once every day is closed. Final: everything becomes read-only. */

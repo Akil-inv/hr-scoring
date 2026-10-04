@@ -36,7 +36,7 @@ export type ReviewData = {
   scoreMax: number;
   supportQuestion: string | null;
   maxTotal: number;
-  days: { date: string; candidates: number; decided: number; ready: number; closed: boolean; closedAt: string | null; closedBy: string | null }[];
+  days: { date: string; candidates: number; decided: number; ready: number; openInterviews: number; closed: boolean; closedAt: string | null; closedBy: string | null }[];
   records: CandidateRecord[];
 };
 
