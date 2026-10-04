@@ -607,12 +607,18 @@ export default function JudgePortalPage() {
                 {message}
               </div>
             )}
+            {/* Closed day or HR's final decision: view only, and why. */}
+            {activeScorecard.closedReason && !['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) && (
+              <div className="mb-4 rounded-lg border border-slate-300 bg-slate-50 px-4 py-2 text-base text-slate-700">
+                {activeScorecard.closedReason}
+              </div>
+            )}
 
             {isRating ? (
               <RatingScorecard
                 rows={leafRows(activeScorecard)}
                 scores={scores}
-                locked={['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status)}
+                locked={(['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) || !!activeScorecard.closedReason)}
                 engaged={engaged}
                 supportQuestion={activeScorecard.supportQuestion ?? null}
                 support={support}
@@ -647,7 +653,7 @@ export default function JudgePortalPage() {
                 const catDone = cs.categoryMaxScore ? catUsed === cs.categoryMaxScore : false;
 
                 const s = scores[cs.criterionId] || { score: null, comment: '' };
-                const isLocked = ['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status);
+                const isLocked = (['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) || !!activeScorecard.closedReason);
                 // Only marked once the judge has engaged — see `engaged`.
                 const scoreMissing = engaged && (s.score === null || s.score === undefined);
                 const commentMissing =
@@ -746,17 +752,17 @@ export default function JudgePortalPage() {
               <div className="rounded-xl border border-slate-200 bg-[#f4f6fa] p-4 space-y-3">
                 <h3 className="text-base font-semibold text-slate-900">Overall assessment</h3>
                 <textarea value={strengths} onChange={(e) => { setDirty(true); setStrengths(e.target.value); }} placeholder="Strengths..." rows={2}
-                  disabled={['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status)}
+                  disabled={(['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) || !!activeScorecard.closedReason)}
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-lg px-4 py-3 text-base text-slate-900 placeholder-slate-500 outline-none resize-none disabled:opacity-50 focus:bg-white focus:border-slate-400" />
                 <textarea value={improvements} onChange={(e) => { setDirty(true); setImprovements(e.target.value); }} placeholder="Areas for improvement..." rows={2}
-                  disabled={['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status)}
+                  disabled={(['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) || !!activeScorecard.closedReason)}
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-lg px-4 py-3 text-base text-slate-900 placeholder-slate-500 outline-none resize-none disabled:opacity-50 focus:bg-white focus:border-slate-400" />
               </div>
             </div>
             )}
 
             {/* What is still outstanding, before the judge presses anything. */}
-            {!['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) &&
+            {!(['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) || !!activeScorecard.closedReason) &&
               engaged && !canSubmit && (
                 <div
                   id="submit-outstanding"
@@ -778,7 +784,7 @@ export default function JudgePortalPage() {
                   {isRating ? `${ratingAvg ?? '–'} / ${ratingMax} · ${rated.length} of ${leafRows(activeScorecard).length} rated` : `${totalScore}/100`}
                 </span>
               </div>
-              {!['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) ? (
+              {!(['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status) || !!activeScorecard.closedReason) ? (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row">
                   <button type="button" onClick={() => saveOrSubmit(false)} disabled={saving}
                     className="w-full sm:w-auto px-5 py-3.5 sm:py-2 bg-slate-100 hover:bg-slate-200 text-slate-900 text-base rounded-lg disabled:opacity-50">
@@ -811,7 +817,9 @@ export default function JudgePortalPage() {
                   </button>
                 </div>
               ) : (
-                <span className="text-base text-emerald-700">✓ Submitted {activeScorecard.submittedAt ? new Date(activeScorecard.submittedAt).toLocaleString() : ''}</span>
+                ['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(activeScorecard.status)
+                  ? <span className="text-base text-emerald-700">✓ Submitted {activeScorecard.submittedAt ? new Date(activeScorecard.submittedAt).toLocaleString() : ''}</span>
+                  : <span className="text-base text-slate-600">Scoring closed</span>
               )}
             </div>
           </div>

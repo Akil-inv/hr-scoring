@@ -50,6 +50,7 @@ const DECISION_COLOUR: Record<Decision, string> = {
   SELECTED: '#3f6a4c',
   WAITLIST: '#8a6a2c',
   NOT_SELECTED: '#8a4b40',
+  DID_NOT_ATTEND: '#5b6270',
 };
 
 /** Pale rose to sand to sage, by the share of the top score reached. */
@@ -80,9 +81,9 @@ export function reportRef(r: CandidateRecord): string {
   return `TD-${r.date.replace(/-/g, '').slice(2)}-${r.sessionId.slice(0, 6).toUpperCase()}`;
 }
 
-export function reportFileName(r: CandidateRecord): string {
+export function reportFileName(r: CandidateRecord, revision = 1): string {
   const name = r.name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'candidate';
-  return `${name}-${r.date}-assessment.pdf`;
+  return `${name}-${r.date}-assessment${revision > 1 ? `-rev${revision}` : ''}.pdf`;
 }
 
 function longDate(iso: string): string {
@@ -110,7 +111,14 @@ type Doc = PDFKit.PDFDocument;
  * they stand, marked as a draft on every page, and is never stored.
  */
 export async function buildReportPdf(
-  data: ReviewData, r: CandidateRecord, printedAt = new Date(), opts: { preview?: boolean } = {},
+  data: ReviewData, r: CandidateRecord, printedAt = new Date(),
+  opts: {
+    preview?: boolean;
+    /** The decision's revision; 2 or more after a reopening. */
+    revision?: number;
+    /** The report this one replaces, named in the footer. */
+    replaces?: { revision: number; createdAt: Date } | null;
+  } = {},
 ): Promise<Buffer> {
   const doc: Doc = new PDFDocument({
     size: 'A4',
@@ -187,7 +195,7 @@ export async function buildReportPdf(
     doc.font('mono').fontSize(7.8).fillColor(MUTED)
       .text(`${data.supportQuestion} · ${r.support.yes} of ${scored.length} Yes`, rx, doc.y + 2, { width: rightW, align: 'right' });
   }
-  const badge = preview ? 'Draft preview' : decided ? 'Final' : 'Not final';
+  const badge = preview ? 'Draft preview' : decided ? ((opts.revision ?? 1) > 1 ? `Final · revision ${opts.revision}` : 'Final') : 'Not final';
   doc.font('monoMedium').fontSize(6.8);
   const bw = doc.widthOfString(badge.toUpperCase(), { characterSpacing: 1.2 }) + 12;
   const by = doc.y + 5;
@@ -289,7 +297,9 @@ export async function buildReportPdf(
     doc.font('mono').fontSize(6.5).fillColor(preview ? '#6d28d9' : MUTED).text(
       preview
         ? `DRAFT PREVIEW — NOT THE RECORD · ${reportRef(r)} · ${stamp(printedAt, tz).toUpperCase()} · PAGE ${i - range.start + 1} OF ${range.count}`
-        : `${reportRef(r)} · CONFIDENTIAL — FOR HIRING DECISIONS ONLY · ${stamp(printedAt, tz).toUpperCase()} · PAGE ${i - range.start + 1} OF ${range.count}`,
+        : (opts.revision ?? 1) > 1
+          ? `${reportRef(r)} · REVISION ${opts.revision}${opts.replaces ? `, REPLACES REVISION ${opts.replaces.revision} OF ${stamp(opts.replaces.createdAt, tz).toUpperCase()}` : ''} · CONFIDENTIAL · PAGE ${i - range.start + 1} OF ${range.count}`
+          : `${reportRef(r)} · CONFIDENTIAL — FOR HIRING DECISIONS ONLY · ${stamp(printedAt, tz).toUpperCase()} · PAGE ${i - range.start + 1} OF ${range.count}`,
       L, fy, { width: W, align: 'center', characterSpacing: 0.8, lineBreak: false },
     );
     doc.page.margins.bottom = saved;

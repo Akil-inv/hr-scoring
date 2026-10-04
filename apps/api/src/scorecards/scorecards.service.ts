@@ -5,6 +5,7 @@ import { AuditAction, ScorecardStatus } from '@prisma/client';
 import { SaveScorecardInput, SubmitScorecardInput } from './scorecards.types';
 import { RankingsService } from '../rankings/rankings.service';
 import { ScoringCoreService } from './scoring-core.service';
+import { supersedeDecision } from '../review/decision-reopen';
 
 @Injectable()
 export class ScorecardsService {
@@ -226,17 +227,27 @@ export class ScorecardsService {
   async reopen(scorecardId: string, reason: string, userId: string) {
     const sc = await this.prisma.scorecard.findUnique({ where: { id: scorecardId } });
     if (!sc) throw new NotFoundException('Scorecard not found');
-    if (!['SUBMITTED', 'RESUBMITTED'].includes(sc.status)) {
+    if (!['SUBMITTED', 'RESUBMITTED', 'LOCKED'].includes(sc.status)) {
       throw new BadRequestException('Can only reopen submitted scorecards');
     }
+    const event = await this.prisma.event.findUnique({ where: { id: sc.eventId }, select: { status: true } });
+    if (event?.status === 'COMPLETED' || event?.status === 'ARCHIVED') {
+      throw new BadRequestException('This event is closed. Its scores can no longer be changed.');
+    }
 
-    const updated = await this.prisma.scorecard.update({
-      where: { id: scorecardId },
-      data: { status: 'REOPENED', reopenReason: reason },
-      include: {
-        judge: true, team: true,
-        criterionScores: { include: { criterion: { include: { parent: true } } }, orderBy: { criterion: { displayOrder: 'asc' } } },
-      },
+    // A changed score must never sit under HR's final decision: reopening a
+    // scorecard also reopens a submitted decision (the report is kept,
+    // marked superseded).
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await supersedeDecision(tx, sc.teamId, reason || 'Scoring reopened', userId);
+      return tx.scorecard.update({
+        where: { id: scorecardId },
+        data: { status: 'REOPENED', reopenReason: reason, lockedAt: null },
+        include: {
+          judge: true, team: true,
+          criterionScores: { include: { criterion: { include: { parent: true } } }, orderBy: { criterion: { displayOrder: 'asc' } } },
+        },
+      });
     });
 
     await this.audit.log({

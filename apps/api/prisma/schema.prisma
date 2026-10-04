@@ -80,6 +80,9 @@ model Event {
   /// use day links, per-team decisions and day closure; WIZARD events keep the
   /// original flow.
   setupMode                   EventSetupMode @default(WIZARD) @map("setup_mode")
+  /// Closing the event (status COMPLETED) is final: everything is read-only.
+  closedAt                    DateTime?      @map("closed_at")
+  closedById                  String?        @map("closed_by") @db.Uuid
   createdAt                   DateTime       @default(now()) @map("created_at")
   updatedAt                   DateTime       @updatedAt @map("updated_at")
   deletedAt                   DateTime?      @map("deleted_at")
@@ -815,6 +818,8 @@ enum TeamDecisionValue {
   SELECTED
   WAITLIST
   NOT_SELECTED
+  /// The candidate did not turn up. Needs no scores; closes the record.
+  DID_NOT_ATTEND
 }
 
 enum TeamDecisionStatus {
@@ -837,6 +842,12 @@ model TeamDecision {
   revision    Int                @default(1)
   decidedById String?            @map("decided_by") @db.Uuid
   decidedAt   DateTime?          @map("decided_at")
+  /// Set when a scoring is reopened after the decision: the decision goes
+  /// back to DRAFT, the revision goes up, and the earlier report is kept
+  /// marked superseded.
+  reopenedAt   DateTime?         @map("reopened_at")
+  reopenedById String?           @map("reopened_by") @db.Uuid
+  reopenReason String?           @map("reopen_reason")
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
 
@@ -863,6 +874,9 @@ model DecisionReport {
   fileName   String   @map("file_name")
   pdf        Bytes
   createdAt  DateTime @default(now()) @map("created_at")
+  /// Set when the record is reopened: a later revision replaces this one.
+  supersededAt     DateTime? @map("superseded_at")
+  supersededReason String?   @map("superseded_reason")
 
   decision TeamDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
 

@@ -79,7 +79,24 @@ export class JudgePortalController {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     const eventClosed = event?.status === 'COMPLETED' || event?.status === 'ARCHIVED';
 
+    // Interview events: candidates who did not attend leave the judge's list,
+    // and a closed day or a decided candidate is view-only unless HR reopened
+    // this scorecard.
+    const decisions = await this.prisma.teamDecision.findMany({
+      where: { eventId, teamId: { in: scorecards.map((sc) => sc.teamId) } },
+      select: { teamId: true, status: true, decision: true },
+    });
+    const absent = new Set(decisions.filter((d) => d.status === 'SUBMITTED' && d.decision === 'DID_NOT_ATTEND').map((d) => d.teamId));
+    const closedWhy = new Map<string, string | null>();
+    if (event) {
+      for (const sc of scorecards) {
+        if (sc.status === 'REOPENED' || absent.has(sc.teamId)) continue;
+        closedWhy.set(sc.id, await this.core.closedFor(event, { teamId: sc.teamId, scheduledStart: sc.session?.scheduledStart ?? null }));
+      }
+    }
+
     return scorecards
+      .filter(sc => !absent.has(sc.teamId))
       // A session this judge stepped out of is not theirs to score. Removing it
       // here keeps it out of every quadrant at once, rather than each surface
       // needing to know about breaks.
@@ -112,7 +129,8 @@ export class JudgePortalController {
         submittedAt: sc.submittedAt,
         reopenReason: sc.reopenReason,
         flaggedForReview: (sc as any).flaggedForReview ?? false,
-        canScore: sessionActive && scorecardEditable && !eventClosed,
+        canScore: sessionActive && scorecardEditable && !eventClosed && !closedWhy.get(sc.id),
+        closedReason: eventClosed ? 'This event is closed.' : closedWhy.get(sc.id) ?? null,
         canView: sc.status !== 'NOT_STARTED',
         eventClosed,
         criterionScores: sc.criterionScores.map(cs => ({

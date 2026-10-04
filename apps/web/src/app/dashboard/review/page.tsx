@@ -5,7 +5,8 @@ import { useAuthStore } from '@/lib/auth-store';
 import { useEventId } from '@/lib/event-store';
 import { dayLabel, messageOf } from '@/components/upload-common';
 import {
-  CandidateRecord, DECISIONS, Decision, JudgeCard, ReviewData, decisionMeta, fetchReport, fetchReportPreview, finalDecision, fmtScore, scoreTone, stateLabel,
+  CandidateRecord, Decision, JudgeCard, OUTCOMES, ReviewData, decisionMeta, fetchReport, fetchReportPreview, fetchReportRevision,
+  finalDecision, fmtScore, reviewAction, scoreTone, stateLabel,
 } from '@/lib/review';
 import ScoreRadar from '@/components/score-radar';
 import PdfViewer from '@/components/pdf-viewer';
@@ -60,14 +61,16 @@ export default function ReviewPage() {
               return (
                 <button key={d.date} type="button" onClick={() => { setDate(d.date); setSelected(null); }}
                   className={`shrink-0 rounded-xl border px-3.5 py-2 text-left transition-colors ${active ? 'border-accent bg-accent/15' : 'border-dark-600 bg-dark-800/60 hover:border-dark-400'}`}>
-                  <span className={`block text-sm font-medium ${active ? 'text-white' : 'text-slate-300'}`}>{dayLabel(d.date)}</span>
+                  <span className={`block text-sm font-medium ${active ? 'text-white' : 'text-slate-300'}`}>{d.closed ? '🔒 ' : ''}{dayLabel(d.date)}</span>
                   <span className="block text-xs text-slate-400 tabular-nums">
-                    {d.decided}/{d.candidates} decided{d.ready ? ` · ${d.ready} ready` : ''}
+                    {d.closed ? 'Closed' : `${d.decided}/${d.candidates} decided${d.ready ? ` · ${d.ready} ready` : ''}`}
                   </span>
                 </button>
               );
             })}
           </div>
+
+          {date && <DayBar data={data} date={date} eventId={eventId} token={token} onChanged={load} />}
 
           <div className="grid gap-4 lg:grid-cols-[minmax(260px,1fr)_2.4fr]">
             <div className="rounded-xl border border-dark-600 bg-dark-800/60 p-2 h-fit max-h-[75vh] overflow-y-auto">
@@ -75,12 +78,60 @@ export default function ReviewPage() {
             </div>
             <div>
               {record
-                ? <CandidateDetail key={record.sessionId} data={data} r={record} eventId={eventId} token={token} onSaved={load} />
+                ? <CandidateDetail key={`${record.sessionId}-${record.revision}-${record.decision?.status ?? 'none'}`} data={data} r={record} eventId={eventId} token={token} onSaved={load} />
                 : <div className="rounded-xl border border-dark-600 bg-dark-800/40 p-10 text-center text-sm text-slate-400">Choose a candidate to review.</div>}
             </div>
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The day's status and Close day. Closing needs every candidate decided or
+ * marked Did not attend; it makes their reports, locks the scorecards and
+ * stops the day's judge links.
+ */
+function DayBar({ data, date, eventId, token, onChanged }: {
+  data: ReviewData; date: string; eventId: string; token: string | null; onChanged: () => void;
+}) {
+  const day = data.days.find((d) => d.date === date);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!day) return null;
+  const left = day.candidates - day.decided;
+  const close = async () => {
+    if (!window.confirm(`Close ${dayLabel(date)}? Its scorecards lock and its judge links stop working. A single interview can still be reopened later with a reason.`)) return;
+    setBusy(true); setMsg(null);
+    try { await reviewAction(`/api/review/${eventId}/days/${date}/close`, token); onChanged(); }
+    catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-dark-600 bg-dark-800/60 px-4 py-3">
+      {day.closed ? (
+        <p className="text-sm text-slate-300">
+          <span className="font-medium text-white">{dayLabel(date)} is closed.</span>{' '}
+          Closed by {day.closedBy ?? 'unknown'}{day.closedAt ? ` · ${new Date(day.closedAt).toLocaleString('en-SG', { timeZone: data.event.timezone })}` : ''}.
+          {' '}Scorecards are locked and the day&apos;s judge links no longer score.
+        </p>
+      ) : (
+        <>
+          <p className="text-sm text-slate-300">
+            <span className="font-medium text-white">{day.decided} of {day.candidates}</span> decided on {dayLabel(date)}.
+            {left > 0 ? ` ${left} still need a final decision (or Did not attend) before the day can close.` : ' Every candidate is decided.'}
+          </p>
+          {!data.event.closed && (
+            <button type="button" onClick={close} disabled={busy || left > 0}
+              title={left > 0 ? 'Decide every candidate first' : undefined}
+              className="ml-auto rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-200 hover:border-accent/60 disabled:cursor-not-allowed disabled:opacity-40">
+              {busy ? 'Closing…' : 'Close day'}
+            </button>
+          )}
+        </>
+      )}
+      {msg && <p className="w-full text-sm text-red-300">{msg}</p>}
     </div>
   );
 }
@@ -120,15 +171,20 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
   const [decision, setDecision] = useState<Decision | null>(r.decision?.decision ?? null);
   const [feedback, setFeedback] = useState(r.decision?.feedback ?? '');
   const [saving, setSaving] = useState(false);
-  const [viewing, setViewing] = useState<null | 'report' | 'preview'>(null);
+  const [viewing, setViewing] = useState<null | 'report' | 'preview' | number>(null);
+  const [reopening, setReopening] = useState(false);
+  const absent = decision === 'DID_NOT_ATTEND';
+  const readOnly = data.event.closed;
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const [tried, setTried] = useState(false);
 
   const save = async (submit: boolean) => {
     if (submit) {
       setTried(true);
-      if (!decision || !feedback.trim()) return;
-      if (!window.confirm(`Submit ${decisionMeta(decision)?.label ?? ''} for ${r.name}? This is final: the record closes and the PDF report is made.`)) return;
+      if (!decision || (!absent && !feedback.trim())) return;
+      if (!window.confirm(absent
+        ? `Mark ${r.name} as Did not attend? The record closes; there is no report.`
+        : `Submit ${decisionMeta(decision)?.label ?? ''} for ${r.name}? This is final: the record closes and the PDF report is made.`)) return;
     }
     setSaving(true);
     setMsg(null);
@@ -152,10 +208,17 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
   const categories = data.criteria.filter((c) => !c.parentId && parents.has(c.id));
   const rowsOf = (catId: string) => data.criteria.filter((c) => c.parentId === catId);
   const missingDecision = tried && !decision;
-  const missingComment = tried && !feedback.trim();
+  const missingComment = tried && !absent && !feedback.trim();
+  const superseded = r.reports.filter((x) => x.supersededAt);
 
   return (
     <div className="space-y-4">
+      {r.reopened && !closed && (
+        <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+          <span className="font-medium">Reopened</span> {new Date(r.reopened.at).toLocaleString('en-SG', { timeZone: data.event.timezone })}
+          {r.reopened.by ? ` by ${r.reopened.by}` : ''}: {r.reopened.reason}. This is revision {r.revision}; decide again once the panel has resubmitted.
+        </div>
+      )}
       {/* Summary: who, the average, the support question, and the profile. */}
       <div className="rounded-xl border border-dark-600 bg-dark-800/60 p-5">
         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:items-center">
@@ -242,10 +305,20 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
             <p className="text-xs text-slate-400">{closed ? 'Final. This record is closed.' : 'Final once submitted. Submitting closes the record and makes the PDF report.'}</p>
           </div>
           {closed ? (
-            <button type="button" onClick={() => setViewing('report')}
-              className="shrink-0 rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-200 hover:border-accent/60">
-              View report (PDF)
-            </button>
+            <div className="flex shrink-0 gap-2">
+              {finalDecision(r) !== 'DID_NOT_ATTEND' && (
+                <button type="button" onClick={() => setViewing('report')}
+                  className="rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-200 hover:border-accent/60">
+                  View report (PDF)
+                </button>
+              )}
+              {!readOnly && (
+                <button type="button" onClick={() => setReopening((v) => !v)}
+                  className="rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-200 hover:border-amber-400/60">
+                  Reopen…
+                </button>
+              )}
+            </div>
           ) : (
             <button type="button" onClick={() => setViewing('preview')}
               title="See the report with your decision and comments as they are now. Nothing is saved."
@@ -263,7 +336,7 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
         ) : (
           <>
             <div className="mt-3 grid grid-cols-3 gap-2">
-              {DECISIONS.map((d) => (
+              {OUTCOMES.map((d) => (
                 <button key={d.value} type="button" onClick={() => setDecision(d.value)}
                   className={`rounded-lg border px-4 py-2.5 text-sm transition-colors ${decision === d.value ? d.tone : missingDecision ? 'border-red-400/50 text-slate-300' : 'border-dark-500 text-slate-300 hover:border-dark-400'}`}>
                   {d.label}
@@ -271,34 +344,114 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
               ))}
             </div>
             {missingDecision && <p className="mt-1 text-xs text-red-300">Choose a decision.</p>}
-            <label className="mt-4 block text-xs text-slate-400" htmlFor="hr-comments">HR comments</label>
+            {!r.judges.some((j) => j.submitted) && (
+              <button type="button" onClick={() => setDecision(absent ? null : 'DID_NOT_ATTEND')}
+                className={`mt-2 rounded-lg border px-3 py-1.5 text-xs transition-colors ${absent ? 'border-slate-400 text-white' : 'border-dashed border-dark-500 text-slate-400 hover:text-slate-200'}`}>
+                {absent ? '✓ Did not attend' : 'Mark as did not attend'}
+              </button>
+            )}
+            <label className="mt-4 block text-xs text-slate-400" htmlFor="hr-comments">HR comments{absent ? ' (optional)' : ''}</label>
             <textarea id="hr-comments" value={feedback} onChange={(e) => setFeedback(e.target.value)} rows={5}
               placeholder="Your assessment and the reason for the decision"
               className={`mt-1 w-full rounded-lg bg-dark-700 border px-3 py-2 text-sm leading-relaxed text-white outline-none focus:border-accent/60 ${missingComment ? 'border-red-400/60' : 'border-dark-500'}`} />
             {missingComment && <p className="mt-1 text-xs text-red-300">Add your comments.</p>}
             <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
-              {r.state === 'AWAITING' && <span className="mr-auto text-xs text-amber-300">Waiting for {r.expected - r.submitted} judge{r.expected - r.submitted === 1 ? '' : 's'} to submit.</span>}
+              {r.state === 'AWAITING' && !absent && <span className="mr-auto text-xs text-amber-300">Waiting for {r.expected - r.submitted} judge{r.expected - r.submitted === 1 ? '' : 's'} to submit.</span>}
               {msg && <span className={`mr-auto text-sm ${msg.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</span>}
               <button type="button" disabled={saving} onClick={() => save(false)}
                 className="px-4 py-2 rounded-lg border border-dark-500 text-sm text-slate-200 hover:border-accent/60 disabled:opacity-40">Save draft</button>
-              <button type="button" disabled={saving || r.state !== 'READY'} onClick={() => save(true)}
+              <button type="button" disabled={saving || readOnly || (!absent && r.state !== 'READY')} onClick={() => save(true)}
                 className="px-4 py-2 rounded-lg bg-accent hover:bg-accent/90 text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed">Submit final decision</button>
             </div>
           </>
         )}
         {closed && msg && <p className={`mt-2 text-sm ${msg.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</p>}
+        {closed && reopening && (
+          <ReopenForm r={r} eventId={eventId} token={token} onDone={() => { setReopening(false); onSaved(); }} onCancel={() => setReopening(false)} />
+        )}
+        {superseded.length > 0 && (
+          <div className="mt-4 border-t border-dark-600 pt-3">
+            <p className="text-xs text-slate-400">Earlier reports</p>
+            <ul className="mt-1 space-y-1">
+              {superseded.map((x) => (
+                <li key={x.revision} className="flex flex-wrap items-baseline gap-x-2 text-sm text-slate-300">
+                  <span>Revision {x.revision}</span>
+                  <span className="text-xs text-slate-500">
+                    superseded {new Date(x.supersededAt!).toLocaleString('en-SG', { timeZone: data.event.timezone })}{x.supersededReason ? `: ${x.supersededReason}` : ''}
+                  </span>
+                  <button type="button" onClick={() => setViewing(x.revision)} className="text-xs text-violet-300 hover:text-white">View</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {viewing && (
         <PdfViewer
-          title={viewing === 'report' ? `${r.name} — assessment report` : `${r.name} — preview`}
-          subtitle={viewing === 'report' ? 'The stored report, as decided' : 'Draft: your decision and comments as they are now. Nothing is saved.'}
-          load={() => viewing === 'report'
-            ? fetchReport(eventId, token, r.sessionId)
-            : fetchReportPreview(eventId, token, r.sessionId, { decision, feedback })}
+          title={typeof viewing === 'number' ? `${r.name} — revision ${viewing}` : viewing === 'report' ? `${r.name} — assessment report` : `${r.name} — preview`}
+          subtitle={typeof viewing === 'number' ? 'Superseded: kept for the record' : viewing === 'report' ? 'The stored report, as decided' : 'Draft: your decision and comments as they are now. Nothing is saved.'}
+          load={() => typeof viewing === 'number'
+            ? fetchReportRevision(eventId, token, r.sessionId, viewing)
+            : viewing === 'report'
+              ? fetchReport(eventId, token, r.sessionId)
+              : fetchReportPreview(eventId, token, r.sessionId, { decision, feedback })}
           onClose={() => setViewing(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Reopen a decided candidate: a reason (kept on the record) and which judges'
+ * scoring to reopen. With no judges ticked only HR's decision reopens.
+ */
+function ReopenForm({ r, eventId, token, onDone, onCancel }: {
+  r: CandidateRecord; eventId: string; token: string | null; onDone: () => void; onCancel: () => void;
+}) {
+  const submitted = r.judges.filter((j) => j.submitted);
+  const [reason, setReason] = useState('');
+  const [picked, setPicked] = useState<Set<string>>(new Set(submitted.map((j) => j.judgeId)));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const go = async () => {
+    if (!reason.trim()) { setErr('Give a reason. It is kept on the record.'); return; }
+    setBusy(true); setErr(null);
+    try { await reviewAction(`/api/review/${eventId}/${r.sessionId}/reopen`, token, { reason, judgeIds: [...picked] }); onDone(); }
+    catch (e: any) { setErr(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-4">
+      <p className="text-sm font-medium text-white">Reopen {r.name}</p>
+      <p className="mt-0.5 text-xs text-slate-400">
+        The decision goes back to a draft (revision {r.revision + 1}). This report is kept, marked superseded. Ticked judges can change their scoring on their usual link, even on a closed day.
+      </p>
+      <label className="mt-3 block text-xs text-slate-400" htmlFor="reopen-reason">Reason</label>
+      <textarea id="reopen-reason" value={reason} onChange={(e) => { setReason(e.target.value); setErr(null); }} rows={2}
+        placeholder="e.g. Panel to re-score after a second interview"
+        className="mt-1 w-full rounded-lg border border-dark-500 bg-dark-700 px-3 py-2 text-sm text-white outline-none focus:border-accent/60" />
+      <p className="mt-3 text-xs text-slate-400">Reopen scoring for</p>
+      <div className="mt-1 flex flex-wrap gap-2">
+        {submitted.map((j) => {
+          const on = picked.has(j.judgeId);
+          return (
+            <label key={j.judgeId} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${on ? 'border-amber-400/50 text-white' : 'border-dark-500 text-slate-400'}`}>
+              <input type="checkbox" checked={on} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(j.judgeId)) n.delete(j.judgeId); else n.add(j.judgeId); return n; })} />
+              {j.name}
+            </label>
+          );
+        })}
+      </div>
+      {picked.size === 0 && <p className="mt-1 text-xs text-slate-400">No judges ticked: only HR&apos;s decision reopens; the scores stay as they are.</p>}
+      {err && <p className="mt-2 text-sm text-red-300">{err}</p>}
+      <div className="mt-3 flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className="rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-300">Cancel</button>
+        <button type="button" onClick={go} disabled={busy} className="rounded-lg bg-amber-500/90 px-3 py-2 text-sm font-medium text-dark-900 hover:bg-amber-400 disabled:opacity-40">
+          {busy ? 'Reopening…' : 'Reopen'}
+        </button>
+      </div>
     </div>
   );
 }

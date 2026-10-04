@@ -20,12 +20,12 @@ function record(scores: number[][], support: boolean[]): CandidateRecord {
     average: Math.round((categoryAverages.reduce((a, c) => a + (c.average ?? 0), 0) / 5) * 10) / 10,
     categoryAverages, support: { yes: support.filter(Boolean).length, no: support.filter((x) => !x).length }, judges,
     decision: { status: 'SUBMITTED', decision: 'SELECTED', feedback: 'Clear, structured thinker.', decidedBy: 'HR Admin', decidedAt: new Date('2026-10-19T09:00:00Z') },
-    report: null,
+    report: null, reports: [], revision: 1, reopened: null, dayClosed: false,
   };
 }
 
 const data = (r: CandidateRecord): ReviewData => ({
-  event: { id: 'e', name: 'October Graduate Interviews', timezone: 'Asia/Singapore' },
+  event: { id: 'e', name: 'October Graduate Interviews', timezone: 'Asia/Singapore', closed: false, closedAt: null, closedBy: null },
   criteria, scale: 'RATING', scoreMax: 5, supportQuestion: 'Support for LAP', maxTotal: 25, days: [], records: [r],
 });
 

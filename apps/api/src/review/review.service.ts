@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { zipSync } from 'fflate';
 import { buildReportPdf, reportFileName } from './report-pdf';
+import { supersedeDecision } from './decision-reopen';
 import { AuditAction } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -15,13 +16,16 @@ import { eventTimezone, localDate } from '../common/event-time';
  * which closes the record. Results group candidates by that decision.
  */
 
-export const DECISIONS = ['SELECTED', 'WAITLIST', 'NOT_SELECTED'] as const;
+export const DECISIONS = ['SELECTED', 'WAITLIST', 'NOT_SELECTED', 'DID_NOT_ATTEND'] as const;
 export type Decision = (typeof DECISIONS)[number];
 export const DECISION_LABEL: Record<Decision, string> = {
   SELECTED: 'Selected',
   WAITLIST: 'Waitlist',
   NOT_SELECTED: 'Not selected',
+  DID_NOT_ATTEND: 'Did not attend',
 };
+/** No scores and no report: the candidate did not turn up. */
+export const ABSENT: Decision = 'DID_NOT_ATTEND';
 
 const SUBMITTED = ['SUBMITTED', 'RESUBMITTED', 'LOCKED'];
 
@@ -77,10 +81,22 @@ export type CandidateRecord = {
   } | null;
   /** The stored PDF report for the current decision, once HR has submitted. */
   report: { revision: number; createdAt: Date } | null;
+  /** Every stored report, newest first; earlier revisions are superseded. */
+  reports: { revision: number; createdAt: Date; supersededAt: Date | null; supersededReason: string | null }[];
+  /** The decision's revision: 2 after one reopening, and so on. */
+  revision: number;
+  /** Set when a scoring was reopened after HR had decided. */
+  reopened: { at: Date; by: string | null; reason: string | null } | null;
+  /** The interview's day has been closed. */
+  dayClosed: boolean;
 };
 
 export type ReviewData = {
-  event: { id: string; name: string; timezone: string };
+  event: {
+    id: string; name: string; timezone: string;
+    /** Closed events are final and read-only. */
+    closed: boolean; closedAt: Date | null; closedBy: string | null;
+  };
   criteria: Criterion[];
   /** POINTS: categories of points; RATING: every dimension rated on one scale (e.g. 1-5). */
   scale: 'POINTS' | 'RATING';
@@ -88,7 +104,10 @@ export type ReviewData = {
   scoreMax: number;
   supportQuestion: string | null;
   maxTotal: number;
-  days: { date: string; candidates: number; decided: number; ready: number }[];
+  days: {
+    date: string; candidates: number; decided: number; ready: number;
+    closed: boolean; closedAt: Date | null; closedBy: string | null;
+  }[];
   records: CandidateRecord[];
 };
 
@@ -132,7 +151,7 @@ export class ReviewService {
     const leaves = criteria.filter((c) => !parents.has(c.id));
     const categories = criteria.filter((c) => !c.parentId && parents.has(c.id));
 
-    const [sessions, decisions, users, reports] = await Promise.all([
+    const [sessions, decisions, users, reports, dayRows] = await Promise.all([
       this.prisma.judgingSession.findMany({
         where: { eventId },
         orderBy: { scheduledStart: 'asc' },
@@ -146,11 +165,15 @@ export class ReviewService {
       this.prisma.user.findMany({ select: { id: true, name: true, email: true } }),
       this.prisma.decisionReport.findMany({
         where: { eventId },
-        select: { decisionId: true, revision: true, createdAt: true },
+        select: { decisionId: true, revision: true, createdAt: true, supersededAt: true, supersededReason: true },
+        orderBy: { revision: 'desc' },
       }),
+      this.prisma.judgingDay.findMany({ where: { eventId } }),
     ]);
     const reportOf = (decisionId: string, revision: number) =>
-      reports.find((r) => r.decisionId === decisionId && r.revision === revision) ?? null;
+      reports.find((r) => r.decisionId === decisionId && r.revision === revision && !r.supersededAt) ?? null;
+    const dayRow = new Map(dayRows.map((d) => [d.date.toISOString().slice(0, 10), d]));
+    const dayClosed = (date: string) => dayRow.get(date)?.status === 'CLOSED';
     const decisionByTeam = new Map(decisions.map((d) => [d.teamId, d]));
     const userName = new Map(users.map((u) => [u.id, u.name || u.email]));
 
@@ -239,10 +262,21 @@ export class ReviewService {
             }
           : null,
         report: d && decided ? reportOf(d.id, d.revision) : null,
+        reports: d
+          ? reports.filter((x) => x.decisionId === d.id).map((x) => ({
+              revision: x.revision, createdAt: x.createdAt, supersededAt: x.supersededAt, supersededReason: x.supersededReason,
+            }))
+          : [],
+        revision: d?.revision ?? 1,
+        reopened: d?.reopenedAt
+          ? { at: d.reopenedAt, by: d.reopenedById ? userName.get(d.reopenedById) ?? null : null, reason: d.reopenReason }
+          : null,
+        dayClosed: dayClosed(day),
       });
     }
 
     const byDay = new Map<string, { candidates: number; decided: number; ready: number }>();
+    // Days closed or with candidates are listed.
     for (const r of records) {
       const x = byDay.get(r.date) ?? { candidates: 0, decided: 0, ready: 0 };
       x.candidates++;
@@ -253,13 +287,26 @@ export class ReviewService {
 
     const maxTotal = categories.length ? categories.reduce((s2, c) => s2 + c.maxScore, 0) : leaves.reduce((s2, c) => s2 + c.maxScore, 0);
     return {
-      event: { id: event.id, name: event.name, timezone: tz },
+      event: {
+        id: event.id, name: event.name, timezone: tz,
+        closed: event.status === 'COMPLETED' || event.status === 'ARCHIVED',
+        closedAt: event.closedAt ?? null,
+        closedBy: event.closedById ? userName.get(event.closedById) ?? null : null,
+      },
       criteria,
       scale: rating ? 'RATING' : 'POINTS',
       scoreMax: rating ? Math.max(...leaves.map((l) => l.maxScore), 0) : maxTotal,
       supportQuestion,
       maxTotal,
-      days: [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([d, x]) => ({ date: d, ...x })),
+      days: [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([d, x]) => {
+        const row = dayRow.get(d);
+        return {
+          date: d, ...x,
+          closed: row?.status === 'CLOSED',
+          closedAt: row?.closedAt ?? null,
+          closedBy: row?.closedById ? userName.get(row.closedById) ?? null : null,
+        };
+      }),
       records: date ? records.filter((r) => r.date === date) : records,
     };
   }
@@ -276,6 +323,7 @@ export class ReviewService {
     userId: string,
   ) {
     const data = await this.load(eventId);
+    if (data.event.closed) throw new BadRequestException('This event is closed. Its records can no longer be changed.');
     const record = data.records.find((r) => r.sessionId === sessionId);
     if (!record) throw new NotFoundException('That candidate is not in this event.');
     if (record.decision?.status === 'SUBMITTED') {
@@ -283,11 +331,12 @@ export class ReviewService {
     }
     const decision = input.decision ? String(input.decision).toUpperCase() : null;
     if (decision && !(DECISIONS as readonly string[]).includes(decision)) {
-      throw new BadRequestException('Decision must be Selected, Waitlist or Not selected.');
+      throw new BadRequestException('Decision must be Selected, Waitlist, Not selected or Did not attend.');
     }
     const feedback = input.feedback?.trim() || null;
+    const absent = decision === ABSENT;
 
-    if (input.submit) {
+    if (input.submit && !absent) {
       if (record.state !== 'READY') {
         throw new BadRequestException(
           `${record.name} can't be decided yet: ${record.submitted} of ${record.expected} judges have submitted.`,
@@ -295,6 +344,9 @@ export class ReviewService {
       }
       if (!decision) throw new BadRequestException('Choose Selected, Waitlist or Not selected before submitting.');
       if (!feedback) throw new BadRequestException('Add your feedback before submitting.');
+    }
+    if (input.submit && absent && record.judges.some((j) => j.submitted)) {
+      throw new BadRequestException(`${record.name} has scores from the panel, so they attended. Choose another decision.`);
     }
 
     const saved = await this.prisma.teamDecision.upsert({
@@ -323,8 +375,16 @@ export class ReviewService {
     // The report is made now and kept, so the file on record is what was
     // decided. If making it fails the decision still stands; the report is
     // made on first download instead.
+    // Re-decided on a closed day: the scorecards go back to locked.
+    if (input.submit && record.dayClosed) {
+      await this.prisma.scorecard.updateMany({
+        where: { sessionId, status: { in: ['SUBMITTED', 'RESUBMITTED'] } },
+        data: { status: 'LOCKED', lockedAt: new Date() },
+      });
+    }
+
     let report = false;
-    if (input.submit) {
+    if (input.submit && !absent) {
       try {
         await this.storeReport(eventId, sessionId);
         report = true;
@@ -343,27 +403,162 @@ export class ReviewService {
     if (record.decision?.status !== 'SUBMITTED') {
       throw new BadRequestException(`${record.name}'s report is available once HR submits the final decision.`);
     }
+    if (record.decision.decision === ABSENT) {
+      throw new BadRequestException(`${record.name} did not attend, so there is no assessment report.`);
+    }
     const decision = await this.prisma.teamDecision.findUnique({ where: { teamId: record.teamId } });
     if (!decision) throw new NotFoundException('Decision not found.');
     const existing = await this.prisma.decisionReport.findUnique({
       where: { decisionId_revision: { decisionId: decision.id, revision: decision.revision } },
     });
     if (existing) return existing;
-    const pdf = await buildReportPdf(data, record, decision.decidedAt ?? new Date());
+    const earlier = record.reports.find((x) => x.revision === decision.revision - 1) ?? null;
+    const pdf = await buildReportPdf(data, record, decision.decidedAt ?? new Date(), {
+      revision: decision.revision,
+      replaces: earlier ? { revision: earlier.revision, createdAt: earlier.createdAt } : null,
+    });
     return this.prisma.decisionReport.upsert({
       where: { decisionId_revision: { decisionId: decision.id, revision: decision.revision } },
       create: {
         eventId, decisionId: decision.id, teamId: record.teamId, revision: decision.revision,
-        fileName: reportFileName(record), pdf,
+        fileName: reportFileName(record, decision.revision), pdf,
       },
       update: {},
     });
   }
 
   /** The stored report for one candidate (made now if it is missing). */
-  async report(eventId: string, sessionId: string): Promise<{ fileName: string; pdf: Buffer }> {
+  async report(eventId: string, sessionId: string, revision?: number): Promise<{ fileName: string; pdf: Buffer }> {
+    if (revision) {
+      const session = await this.prisma.judgingSession.findFirst({ where: { id: sessionId, eventId }, select: { teamId: true } });
+      const d = session && (await this.prisma.teamDecision.findUnique({ where: { teamId: session.teamId } }));
+      const r = d && (await this.prisma.decisionReport.findUnique({ where: { decisionId_revision: { decisionId: d.id, revision } } }));
+      if (!r) throw new NotFoundException(`There is no revision ${revision} of this report.`);
+      return { fileName: r.fileName, pdf: Buffer.from(r.pdf) };
+    }
     const r = await this.storeReport(eventId, sessionId);
     return { fileName: r.fileName, pdf: Buffer.from(r.pdf) };
+  }
+
+  /**
+   * Reopen an interview's scoring: the chosen judges' scorecards go back to
+   * them to change, and if HR had decided, the decision goes back to a draft
+   * at the next revision and the stored report is kept, marked superseded.
+   * With no judges chosen, only HR's decision reopens. Allowed on a closed
+   * day (that one interview only); never on a closed event.
+   */
+  async reopen(
+    eventId: string, sessionId: string,
+    input: { reason?: string | null; judgeIds?: string[] | null }, userId: string,
+  ) {
+    const data = await this.load(eventId);
+    if (data.event.closed) throw new BadRequestException('This event is closed. Its records can no longer be changed.');
+    const record = data.records.find((r) => r.sessionId === sessionId);
+    if (!record) throw new NotFoundException('That candidate is not in this event.');
+    const reason = input.reason?.trim();
+    if (!reason) throw new BadRequestException('Give a reason for reopening. It is kept on the record.');
+
+    const wanted = new Set(input.judgeIds ?? []);
+    const unknown = [...wanted].filter((id) => !record.judges.some((j) => j.judgeId === id));
+    if (unknown.length) throw new BadRequestException('Some of the chosen judges are not on this panel.');
+    const cards = await this.prisma.scorecard.findMany({
+      where: { sessionId, judgeId: { in: [...wanted] }, status: { in: ['SUBMITTED', 'RESUBMITTED', 'LOCKED'] } },
+      include: { judge: { select: { name: true } } },
+    });
+    const decided = record.decision?.status === 'SUBMITTED';
+    if (cards.length === 0 && !decided) {
+      throw new BadRequestException(
+        wanted.size ? 'None of the chosen judges has submitted, so there is nothing to reopen.' : 'Choose the judges whose scoring to reopen.',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (cards.length) {
+        await tx.scorecard.updateMany({
+          where: { id: { in: cards.map((c) => c.id) } },
+          data: { status: 'REOPENED', reopenReason: reason, lockedAt: null },
+        });
+      }
+      if (decided) await supersedeDecision(tx, record.teamId, reason, userId);
+    });
+
+    await this.audit.log({
+      userId, eventId, action: AuditAction.UPDATE, entityType: 'TeamDecision', entityId: record.teamId,
+      reason: `Reopened ${record.name}: ${reason}`,
+      oldValues: { decision: record.decision?.decision ?? null, status: record.decision?.status ?? null, revision: record.revision },
+      newValues: { reopenedJudges: cards.map((c) => c.judge.name), decisionReopened: decided },
+    });
+    return { reopenedJudges: cards.map((c) => c.judge.name), decisionReopened: decided };
+  }
+
+  /**
+   * Close a day: every candidate must be decided (or marked as not
+   * attending). Their reports are made, the day's scorecards are locked and
+   * its judge links stop working. A closed day is not reopened; a single
+   * interview on it can be (see reopen).
+   */
+  async closeDay(eventId: string, date: string, userId: string) {
+    const data = await this.load(eventId, date);
+    if (data.event.closed) throw new BadRequestException('This event is closed.');
+    const day = data.days.find((d) => d.date === date);
+    if (!day) throw new NotFoundException('There are no candidates on that day.');
+    if (day.closed) throw new BadRequestException('That day is already closed.');
+    const open = data.records.filter((r) => r.state !== 'DECIDED');
+    if (open.length) {
+      const names = open.slice(0, 5).map((r) => r.name).join(', ') + (open.length > 5 ? ` and ${open.length - 5} more` : '');
+      throw new BadRequestException(
+        `${open.length} candidate${open.length === 1 ? ' still needs' : 's still need'} a final decision: ${names}. ` +
+        'Decide each one, or mark them Did not attend, before closing the day.',
+      );
+    }
+    for (const r of data.records) {
+      if (r.decision?.decision !== ABSENT) await this.storeReport(eventId, r.sessionId);
+    }
+    const now = new Date();
+    const sessionIds = data.records.map((r) => r.sessionId);
+    await this.prisma.$transaction(async (tx) => {
+      const row = await tx.judgingDay.upsert({
+        where: { eventId_date: { eventId, date: new Date(`${date}T00:00:00Z`) } },
+        create: { eventId, date: new Date(`${date}T00:00:00Z`), status: 'CLOSED', closedAt: now, closedById: userId },
+        update: { status: 'CLOSED', closedAt: now, closedById: userId },
+      });
+      await tx.scorecard.updateMany({
+        where: { sessionId: { in: sessionIds }, status: { in: ['SUBMITTED', 'RESUBMITTED'] } },
+        data: { status: 'LOCKED', lockedAt: now },
+      });
+      await tx.judgeLink.updateMany({
+        where: { dayId: row.id, revokedAt: null },
+        data: { revokedAt: now, revokedReason: 'Day closed' },
+      });
+    });
+    await this.audit.log({
+      userId, eventId, action: AuditAction.UPDATE, entityType: 'JudgingDay', entityId: date,
+      reason: `Day ${date} closed`, newValues: { candidates: data.records.length },
+    });
+    return { date, closedAt: now, candidates: data.records.length };
+  }
+
+  /** Close the event once every day is closed. Final: everything becomes read-only. */
+  async closeEvent(eventId: string, userId: string) {
+    const data = await this.load(eventId);
+    if (data.event.closed) throw new BadRequestException('This event is already closed.');
+    const open = data.days.filter((d) => !d.closed);
+    if (open.length) {
+      throw new BadRequestException(
+        `${open.length} day${open.length === 1 ? ' is' : 's are'} still open: ${open.map((d) => d.date).join(', ')}. Close every day first.`,
+      );
+    }
+    if (data.days.length === 0) throw new BadRequestException('This event has no candidates yet.');
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.event.update({ where: { id: eventId }, data: { status: 'COMPLETED', closedAt: now, closedById: userId } }),
+      this.prisma.judgeLink.updateMany({ where: { eventId, revokedAt: null }, data: { revokedAt: now, revokedReason: 'Event closed' } }),
+    ]);
+    await this.audit.log({
+      userId, eventId, action: AuditAction.UPDATE, entityType: 'Event', entityId: eventId,
+      reason: 'Event closed', newValues: { days: data.days.length, candidates: data.records.length },
+    });
+    return { closedAt: now };
   }
 
   /**
@@ -399,7 +594,7 @@ export class ReviewService {
   async dayReports(eventId: string, date: string): Promise<{ fileName: string; zip: Buffer; count: number }> {
     const data = await this.load(eventId, date);
     const decided = data.records
-      .filter((r) => r.decision?.status === 'SUBMITTED')
+      .filter((r) => r.decision?.status === 'SUBMITTED' && r.decision.decision !== ABSENT)
       .sort((a, b) => a.start.localeCompare(b.start));
     if (decided.length === 0) throw new BadRequestException('No candidates on this day have a final HR decision yet.');
     const files: Record<string, Uint8Array> = {};

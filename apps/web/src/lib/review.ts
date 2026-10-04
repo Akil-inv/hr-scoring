@@ -15,7 +15,7 @@ export type JudgeCard = {
   support: boolean | null;
   scores: Record<string, { score: number | null; comment: string | null }>;
 };
-export type Decision = 'SELECTED' | 'WAITLIST' | 'NOT_SELECTED';
+export type Decision = 'SELECTED' | 'WAITLIST' | 'NOT_SELECTED' | 'DID_NOT_ATTEND';
 export type CandidateRecord = {
   sessionId: string; teamId: string; name: string; date: string; start: string; end: string;
   state: 'AWAITING' | 'READY' | 'DECIDED'; expected: number; submitted: number; average: number | null;
@@ -24,15 +24,19 @@ export type CandidateRecord = {
   judges: JudgeCard[];
   decision: { status: 'DRAFT' | 'SUBMITTED'; decision: Decision | null; feedback: string | null; decidedBy: string | null; decidedAt: string | null } | null;
   report: { revision: number; createdAt: string } | null;
+  reports: { revision: number; createdAt: string; supersededAt: string | null; supersededReason: string | null }[];
+  revision: number;
+  reopened: { at: string; by: string | null; reason: string | null } | null;
+  dayClosed: boolean;
 };
 export type ReviewData = {
-  event: { id: string; name: string; timezone: string };
+  event: { id: string; name: string; timezone: string; closed: boolean; closedAt: string | null; closedBy: string | null };
   criteria: Criterion[];
   scale: 'POINTS' | 'RATING';
   scoreMax: number;
   supportQuestion: string | null;
   maxTotal: number;
-  days: { date: string; candidates: number; decided: number; ready: number }[];
+  days: { date: string; candidates: number; decided: number; ready: number; closed: boolean; closedAt: string | null; closedBy: string | null }[];
   records: CandidateRecord[];
 };
 
@@ -40,7 +44,27 @@ export const DECISIONS: { value: Decision; label: string; tone: string; dot: str
   { value: 'SELECTED', label: 'Selected', tone: 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200', dot: 'bg-emerald-400' },
   { value: 'WAITLIST', label: 'Waitlist', tone: 'border-amber-400/40 bg-amber-400/10 text-amber-200', dot: 'bg-amber-400' },
   { value: 'NOT_SELECTED', label: 'Not selected', tone: 'border-slate-400/30 bg-white/[0.04] text-slate-300', dot: 'bg-slate-400' },
+  { value: 'DID_NOT_ATTEND', label: 'Did not attend', tone: 'border-dashed border-slate-500/50 text-slate-400', dot: 'bg-slate-600' },
 ];
+/** The three outcomes for a candidate who was interviewed. */
+export const OUTCOMES = DECISIONS.filter((d) => d.value !== 'DID_NOT_ATTEND');
+
+/** POST to the review API with the sign-in token; throws the server's message. */
+export async function reviewAction(url: string, token: string | null, body: unknown = {}) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data?.message === 'string' ? data.message : `Could not complete that (${res.status}).`);
+  return data;
+}
+
+/** A stored report revision (earlier ones are superseded). */
+export function fetchReportRevision(eventId: string, token: string | null, sessionId: string, revision: number) {
+  return fetchPdfPublic(`/api/review/${eventId}/${sessionId}/report?view=1&revision=${revision}`, token);
+}
 
 export function decisionMeta(d: Decision | null | undefined) {
   return DECISIONS.find((x) => x.value === d) ?? null;
@@ -115,6 +139,8 @@ async function fetchPdf(url: string, token: string | null, init: RequestInit = {
   const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'report.pdf';
   return { blob: await res.blob(), name };
 }
+
+const fetchPdfPublic = (url: string, token: string | null) => fetchPdf(url, token);
 
 /** The stored report, to show in the app. */
 export function fetchReport(eventId: string, token: string | null, sessionId: string) {

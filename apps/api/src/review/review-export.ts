@@ -15,7 +15,7 @@ import { CandidateRecord, DECISION_LABEL, Decision, ReviewData } from './review.
  * criterion. Judge comments is one row per judge per candidate.
  */
 
-const GROUP_ORDER: (Decision | 'NONE')[] = ['SELECTED', 'WAITLIST', 'NOT_SELECTED', 'NONE'];
+const GROUP_ORDER: (Decision | 'NONE')[] = ['SELECTED', 'WAITLIST', 'NOT_SELECTED', 'DID_NOT_ATTEND', 'NONE'];
 
 const STATE_LABEL: Record<CandidateRecord['state'], string> = {
   AWAITING: 'Awaiting scores',

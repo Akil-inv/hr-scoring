@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { useEventId } from '@/lib/event-store';
 import { dayLabel, messageOf } from '@/components/upload-common';
-import { CandidateRecord, DECISIONS, ReviewData, downloadDayReports, downloadResults, fetchReport, finalDecision, fmtScore, scoreTone } from '@/lib/review';
+import { CandidateRecord, DECISIONS, ReviewData, downloadDayReports, downloadResults, fetchReport, finalDecision, fmtScore, reviewAction, scoreTone } from '@/lib/review';
 import PdfViewer from '@/components/pdf-viewer';
 
 /**
@@ -50,6 +50,12 @@ export default function ResultsPage() {
     setBusy(null);
   };
 
+  const closeEvent = async () => {
+    if (!eventId || !data) return;
+    if (!window.confirm(`Close ${data.event.name}? This is final: every record becomes read-only and all judge links stop working. Results, Excel and PDFs stay available.`)) return;
+    await run('CLOSE', async () => { await reviewAction(`/api/review/${eventId}/close`, token); await load(); });
+  };
+
   if (!eventId) return <p className="text-sm text-slate-400">Choose an event first.</p>;
   if (error) return <div className="rounded-xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-red-300">{error}</div>;
   if (!data) return <p className="text-sm text-slate-400">Loading…</p>;
@@ -66,7 +72,7 @@ export default function ResultsPage() {
         <div className="flex flex-wrap justify-end gap-2 shrink-0">
           {date !== 'ALL' && (
             <>
-              {records.some((r) => finalDecision(r)) && (
+              {records.some((r) => finalDecision(r) && finalDecision(r) !== 'DID_NOT_ATTEND') && (
                 <button type="button" disabled={!!busy} onClick={() => run('ZIP', () => downloadDayReports(eventId, token, date))}
                   className="px-3 py-2 rounded-lg border border-dark-500 text-sm text-slate-200 hover:border-accent/60 disabled:opacity-40">
                   {busy === 'ZIP' ? 'Preparing…' : 'Reports for this day (PDF, zip)'}
@@ -85,9 +91,28 @@ export default function ResultsPage() {
         </div>
       </div>
 
+      {data.event.closed ? (
+        <div className="mb-4 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+          <span className="font-medium">This event is closed.</span>{' '}
+          Closed by {data.event.closedBy ?? 'unknown'}{data.event.closedAt ? ` · ${new Date(data.event.closedAt).toLocaleString('en-SG', { timeZone: data.event.timezone })}` : ''}.
+          {' '}Everything is read-only; results, Excel and PDFs stay available.
+        </div>
+      ) : data.days.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-dark-600 bg-dark-800/60 px-4 py-3 text-sm text-slate-300">
+          <span>
+            {data.days.filter((d) => d.closed).length} of {data.days.length} days closed.
+            {data.days.every((d) => d.closed) ? ' Every day is closed, so the event can be closed.' : ' Close each day on the Review page; then the event can be closed.'}
+          </span>
+          <button type="button" onClick={closeEvent} disabled={!!busy || !data.days.every((d) => d.closed)}
+            className="ml-auto rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-200 hover:border-accent/60 disabled:cursor-not-allowed disabled:opacity-40">
+            {busy === 'CLOSE' ? 'Closing…' : 'Close event'}
+          </button>
+        </div>
+      )}
+
       <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
         {[{ date: 'ALL' as const, label: 'All days', sub: `${data.records.length} candidates` },
-          ...data.days.map((d) => ({ date: d.date, label: dayLabel(d.date), sub: `${d.decided}/${d.candidates} decided` }))].map((d) => (
+          ...data.days.map((d) => ({ date: d.date, label: `${d.closed ? '🔒 ' : ''}${dayLabel(d.date)}`, sub: d.closed ? 'Closed' : `${d.decided}/${d.candidates} decided` }))].map((d) => (
           <button key={d.date} type="button" onClick={() => setDate(d.date)}
             className={`shrink-0 rounded-xl border px-3.5 py-2 text-left transition-colors ${date === d.date ? 'border-accent bg-accent/15' : 'border-dark-600 bg-dark-800/60 hover:border-dark-400'}`}>
             <span className={`block text-sm font-medium ${date === d.date ? 'text-white' : 'text-slate-300'}`}>{d.label}</span>
@@ -132,7 +157,7 @@ export default function ResultsPage() {
                       {finalDecision(r) ? <span className="line-clamp-2">{r.decision?.feedback}</span> : <span className="text-slate-500">{r.state === 'READY' ? 'Ready for decision' : `Awaiting scores (${r.submitted}/${r.expected})`}</span>}
                     </td>
                     <td className="px-4 py-2 text-right">
-                      {finalDecision(r) && (
+                      {finalDecision(r) && finalDecision(r) !== 'DID_NOT_ATTEND' && (
                         <button type="button" onClick={() => setViewing(r)}
                           className="text-xs text-violet-300 hover:text-white whitespace-nowrap">
                           View PDF

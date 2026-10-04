@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, ScorecardStatus } from '@prisma/client';
+import { eventTimezone, localDate } from '../common/event-time';
 
 /**
  * The single scoring implementation.
@@ -247,6 +248,13 @@ export class ScoringCoreService {
       );
     }
 
+    // Interview events: a closed day, or a candidate HR has already decided,
+    // takes no more scoring unless HR reopened this scorecard.
+    if (scorecard.status !== 'REOPENED') {
+      const closed = await this.closedFor(event, session);
+      if (closed) throw new BadRequestException(closed);
+    }
+
     // STATE-3. Nothing further is checked here, and the omission is deliberate.
     //
     // This once required a saved draft before a submit — DRAFT or REOPENED
@@ -261,6 +269,33 @@ export class ScoringCoreService {
     // judgement is complete. SUB-1 checks that, against the template's full
     // leaf set. The guard above already prevents a second submit, which is the
     // only status rule a submit needs.
+  }
+
+  /**
+   * Why a session takes no more scoring, or null: its day is closed, or HR
+   * has made the final decision on the candidate.
+   */
+  async closedFor(
+    event: { id: string; timezone: string | null },
+    session: { teamId: string; scheduledStart: Date | null },
+  ): Promise<string | null> {
+    const decision = await this.prisma.teamDecision.findUnique({
+      where: { teamId: session.teamId }, select: { status: true },
+    });
+    if (decision?.status === 'SUBMITTED') {
+      return 'HR has made the final decision on this candidate, so scoring is closed. Ask HR to reopen it if it needs changing.';
+    }
+    if (session.scheduledStart) {
+      const date = localDate(session.scheduledStart, eventTimezone(event as any));
+      const day = await this.prisma.judgingDay.findUnique({
+        where: { eventId_date: { eventId: event.id, date: new Date(`${date}T00:00:00Z`) } },
+        select: { status: true },
+      });
+      if (day?.status === 'CLOSED') {
+        return `Scoring for ${date} is closed. Ask HR to reopen this interview if it needs changing.`;
+      }
+    }
+    return null;
   }
 
   // ───────────────────────────────────────────────────────────────────────

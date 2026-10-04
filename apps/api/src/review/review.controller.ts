@@ -16,6 +16,9 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
  *   GET  /api/review/:eventId/:sessionId/report          the candidate's stored PDF report (decided only)
  *   GET  /api/review/:eventId/reports?date=YYYY-MM-DD    that day's reports as a .zip
  *   POST /api/review/:eventId/:sessionId/report-preview  { decision, feedback } → draft PDF, not stored
+ *   POST /api/review/:eventId/:sessionId/reopen          { reason, judgeIds } reopen scoring / the decision
+ *   POST /api/review/:eventId/days/:date/close           close a day
+ *   POST /api/review/:eventId/close                      close the event (final)
  */
 @Controller('api/review')
 export class ReviewController {
@@ -64,13 +67,38 @@ export class ReviewController {
   @Get(':eventId/:sessionId/report')
   async report(
     @Param('eventId') eventId: string, @Param('sessionId') sessionId: string,
-    @Query('view') view: string | undefined, @Req() req: any, @Res() res: Response,
+    @Query('view') view: string | undefined, @Query('revision') revision: string | undefined,
+    @Req() req: any, @Res() res: Response,
   ) {
     await this.service.assertAccess(req.user, eventId, ADMINS);
-    const out = await this.service.report(eventId, sessionId);
+    const rev = revision && /^\d+$/.test(revision) ? Number(revision) : undefined;
+    const out = await this.service.report(eventId, sessionId, rev);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${view ? 'inline' : 'attachment'}; filename="${out.fileName}"`);
     res.send(out.pdf);
+  }
+
+  @Post(':eventId/:sessionId/reopen')
+  async reopen(
+    @Param('eventId') eventId: string, @Param('sessionId') sessionId: string,
+    @Body() body: { reason?: string | null; judgeIds?: string[] | null }, @Req() req: any,
+  ) {
+    await this.service.assertAccess(req.user, eventId, ADMINS);
+    return this.service.reopen(eventId, sessionId, body ?? {}, req.user.sub);
+  }
+
+  @Post(':eventId/days/:date/close')
+  async closeDay(@Param('eventId') eventId: string, @Param('date') date: string, @Req() req: any) {
+    await this.service.assertAccess(req.user, eventId, ADMINS);
+    const day = this.date(date);
+    if (!day) throw new BadRequestException('Choose a day (YYYY-MM-DD).');
+    return this.service.closeDay(eventId, day, req.user.sub);
+  }
+
+  @Post(':eventId/close')
+  async closeEvent(@Param('eventId') eventId: string, @Req() req: any) {
+    await this.service.assertAccess(req.user, eventId, ADMINS);
+    return this.service.closeEvent(eventId, req.user.sub);
   }
 
   /** HR's draft as a PDF preview: never stored, marked as a draft. */
