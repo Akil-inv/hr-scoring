@@ -474,7 +474,8 @@ function drawCommentsByDimension(
   const parents = new Set(data.criteria.map((c) => c.parentId).filter(Boolean));
   const leaves = data.criteria.filter((c) => !parents.has(c.id));
   const nameW = 84;
-  const chipW = 20;
+  // Room for a quarter score (3.75) in the chip.
+  const chipW = 26;
   const textX = L + nameW + chipW + 10;
   const textW = W - (textX - L);
   for (const l of leaves) {

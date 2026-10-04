@@ -102,6 +102,8 @@ interface Criterion {
   name: string;
   minScore: number;
   maxScore: number;
+  /** Smallest step allowed: 1 for whole numbers, 0.25 to allow 3.75. */
+  scoreIncrement: number;
   requiresComment: boolean;
   parentId: string | null;
 }
@@ -174,18 +176,21 @@ export class ScoringCoreService {
     categoryIds: Set<string>;
     byId: Map<string, Criterion>;
   }> {
-    const all = (await this.prisma.scoringCriterion.findMany({
-      where: { templateId },
-      orderBy: { displayOrder: 'asc' },
-      select: {
-        id: true,
-        name: true,
-        minScore: true,
-        maxScore: true,
-        requiresComment: true,
-        parentId: true,
-      },
-    })) as Criterion[];
+    const all: Criterion[] = (
+      await this.prisma.scoringCriterion.findMany({
+        where: { templateId },
+        orderBy: { displayOrder: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          minScore: true,
+          maxScore: true,
+          scoreIncrement: true,
+          requiresComment: true,
+          parentId: true,
+        },
+      })
+    ).map((c) => ({ ...c, scoreIncrement: Number(c.scoreIncrement) || 1 }));
 
     const categoryIds = new Set(
       all.map((c) => c.parentId).filter(Boolean) as string[],
@@ -311,11 +316,22 @@ export class ScoringCoreService {
         );
       }
 
-      if (!Number.isInteger(s.score)) {
+      // On the criterion's step: whole numbers by default, quarters (3.75)
+      // when the rubric allows them. Stored rounded to the step, so float
+      // noise from a slider (3.7500000001) never reaches the database.
+      const step = criterion.scoreIncrement > 0 ? criterion.scoreIncrement : 1;
+      if (typeof s.score !== 'number' || !Number.isFinite(s.score)) {
+        throw new BadRequestException(`Score for "${criterion.name}" must be a number (got ${s.score}).`);
+      }
+      const steps = s.score / step;
+      if (Math.abs(steps - Math.round(steps)) > 1e-6) {
         throw new BadRequestException(
-          `Score for "${criterion.name}" must be a whole number (got ${s.score}).`,
+          step >= 1
+            ? `Score for "${criterion.name}" must be a whole number (got ${s.score}).`
+            : `Score for "${criterion.name}" must be in steps of ${step} (got ${s.score}).`,
         );
       }
+      s.score = Math.round(Math.round(steps) * step * 100) / 100;
       const min = criterion.minScore ?? 0;
       if (s.score < min || s.score > criterion.maxScore) {
         throw new BadRequestException(

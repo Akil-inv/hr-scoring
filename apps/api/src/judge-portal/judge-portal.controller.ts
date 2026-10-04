@@ -121,6 +121,7 @@ export class JudgePortalController {
           criterionName: cs.criterion?.name,
           maxScore: cs.criterion?.maxScore,
           minScore: (cs.criterion as any)?.minScore ?? 0,
+          scoreIncrement: Number((cs.criterion as any)?.scoreIncrement ?? 1) || 1,
           description: cs.criterion?.description ?? null,
           displayOrder: cs.criterion?.displayOrder ?? 0,
           guidanceText: cs.criterion?.guidanceText,

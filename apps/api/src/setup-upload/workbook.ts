@@ -32,6 +32,8 @@ export type EventInfo = {
   adminEmails: string[];
   /** Asked of every judge as Yes / No, e.g. "Support for LAP". Null for none. */
   supportQuestion: string | null;
+  /** Rating rubrics: the finest step a judge may score in (0.25 allows 3.75). */
+  scoreStep: number;
 };
 
 export type ItemKind = 'INTERVIEW' | 'BREAK' | 'CALIBRATION';
@@ -81,7 +83,7 @@ export type CriterionRow = {
 };
 
 /** One dimension of a 1-5 rating rubric (the Rubric sheet). */
-export type RatingRow = RatingDimension & { row: number };
+export type RatingRow = RatingDimension & { row: number; requiresComment: boolean };
 
 export type ParsedWorkbook = {
   event: EventInfo | null;
@@ -115,9 +117,16 @@ export type CheckResult = {
     schedule: DaySummary[];
     rubric: string;
     supportQuestion: string | null;
+    scoreStep: number;
+    /** Rating rubrics: how many dimensions need a comment. */
+    commentsRequired: number | null;
   };
   workbook: ParsedWorkbook;
 };
+
+/** Steps a rating can be scored in: 1 (whole numbers) down to 0.1. */
+export const SCORE_STEPS = [1, 0.5, 0.25, 0.1];
+export const DEFAULT_SCORE_STEP = 0.25;
 
 /** The rubric total every category must add up to (matches the scoring template). */
 export const RUBRIC_TOTAL = 100;
@@ -294,6 +303,11 @@ function readEvent(rows: RawRow[], wb: XLSX.WorkBook, err: (s: string, r: number
     err('Event', r.row, 'Minimum panel size must be a whole number from 1 to 10, or left blank for 2.');
   }
   for (const a of admins) if (!EMAIL.test(a)) err('Event', r.row, `"${a}" in Admin emails is not an email address.`);
+  const stepRaw = pick(c, 'score_step', 'step');
+  const step = stepRaw === null ? null : Number(String(stepRaw).trim());
+  if (stepRaw !== null && !SCORE_STEPS.includes(step as number)) {
+    err('Event', r.row, `Score step must be one of ${SCORE_STEPS.join(', ')} (or blank for ${DEFAULT_SCORE_STEP}).`);
+  }
   return {
     name: name ?? '',
     location: text(pick(c, 'location', 'venue')),
@@ -301,6 +315,7 @@ function readEvent(rows: RawRow[], wb: XLSX.WorkBook, err: (s: string, r: number
     minPanel: minPanel ?? 2,
     adminEmails: [...new Set(admins)],
     supportQuestion: text(pick(c, 'support_question', 'judge_question')),
+    scoreStep: step ?? DEFAULT_SCORE_STEP,
   };
 }
 
@@ -540,7 +555,15 @@ function readRating(rows: RawRow[], err: (s: string, r: number | null, m: string
     const high = text(pick(c, 'score_5', 'high', '5'));
     const missing = [!low && 'Score 1', !moderate && 'Score 3', !high && 'Score 5'].filter(Boolean);
     if (missing.length) { err('Rubric', r.row, `"${name}" needs a description for ${missing.join(', ')}. Judges see these while scoring.`); continue; }
-    out.push({ row: r.row, name, descriptor: text(pick(c, 'descriptor', 'description')) ?? '', low: low!, moderate: moderate!, high: high! });
+    // Comments are required unless the sheet says N for this dimension.
+    const cr = text(pick(c, 'comment_required', 'requires_comment'));
+    if (cr !== null && !['y', 'yes', 'n', 'no'].includes(cr.toLowerCase())) {
+      err('Rubric', r.row, `Comment required for "${name}" must be Y or N (got "${cr}").`);
+    }
+    out.push({
+      row: r.row, name, descriptor: text(pick(c, 'descriptor', 'description')) ?? '', low: low!, moderate: moderate!, high: high!,
+      requiresComment: cr === null || !['n', 'no'].includes(cr.toLowerCase()),
+    });
   }
   if (out.length > 0 && out.length < 3) {
     err('Rubric', null, `The rubric has ${out.length} dimension${out.length === 1 ? '' : 's'}. It needs at least 3.`);
@@ -597,6 +620,8 @@ function finish(wb: ParsedWorkbook, errorsIn: Issue[], warningsIn: Issue[]): Che
           ? `${categories} categories, ${wb.criteria.length - categories} rows`
           : `LAP rubric, ${LAP_RUBRIC.dimensions.length} dimensions rated 1-5 (Rubric sheet empty)`,
       supportQuestion: wb.event?.supportQuestion ?? null,
+      scoreStep: wb.criteria.length > 0 ? 1 : wb.event?.scoreStep ?? DEFAULT_SCORE_STEP,
+      commentsRequired: wb.rating.length > 0 ? wb.rating.filter((d) => d.requiresComment).length : wb.criteria.length > 0 ? null : LAP_RUBRIC.dimensions.length,
     },
     workbook: wb,
   };

@@ -104,10 +104,10 @@ function CandidateRow({ r, max, scale, active, onClick }: { r: CandidateRecord; 
 }
 
 function ScoreChip({ value, max }: { value: number | null | undefined; max: number }) {
-  if (value === null || value === undefined) return <span className="inline-flex h-6 w-7 items-center justify-center rounded-md border border-dark-500 text-xs text-slate-500">–</span>;
+  if (value === null || value === undefined) return <span className="inline-flex h-6 min-w-7 items-center justify-center rounded-md border border-dark-500 px-1.5 text-xs text-slate-500">–</span>;
   const t = scoreTone(value, max);
   return (
-    <span className="inline-flex h-6 w-7 items-center justify-center rounded-md text-xs font-semibold tabular-nums"
+    <span className="inline-flex h-6 min-w-7 items-center justify-center rounded-md px-1.5 text-xs font-semibold tabular-nums"
       style={{ background: t.fill, color: 'rgb(31,35,44)' }}>{value}</span>
   );
 }
@@ -214,7 +214,7 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
                   </div>
                   <div className="mt-2 space-y-1.5">
                     {r.judges.map((j) => (
-                      <div key={j.judgeId} className={`grid grid-cols-[88px_28px_minmax(0,1fr)] items-start gap-2 text-sm ${j.excused ? 'opacity-50' : ''}`}>
+                      <div key={j.judgeId} className={`grid grid-cols-[88px_40px_minmax(0,1fr)] items-start gap-2 text-sm ${j.excused ? 'opacity-50' : ''}`}>
                         <span className="truncate text-slate-400 leading-6">{j.name}</span>
                         <ScoreChip value={j.submitted ? j.scores[l.id]?.score : null} max={l.maxScore} />
                         <span className="leading-6 text-slate-200 whitespace-pre-wrap">

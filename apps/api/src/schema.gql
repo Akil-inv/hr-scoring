@@ -184,13 +184,13 @@ type CriterionScoreEntity {
   id: String!
   maxScore: Int!
   requiresComment: Boolean!
-  score: Int
+  score: Float
 }
 
 input CriterionScoreInput {
   comment: String
   criterionId: String!
-  score: Int!
+  score: Float!
 }
 
 """
@@ -659,7 +659,7 @@ type ScorecardEntity {
   submittedAt: DateTime
   teamId: String!
   teamName: String!
-  totalScore: Int
+  totalScore: Float
 }
 
 enum ScorecardStatus {

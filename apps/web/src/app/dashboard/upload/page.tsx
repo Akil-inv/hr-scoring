@@ -31,6 +31,8 @@ type Preview = {
     schedule: { date: string; blocks: DayBlock[] }[];
     rubric: string;
     supportQuestion: string | null;
+    scoreStep: number;
+    commentsRequired: number | null;
   };
 };
 
@@ -187,6 +189,8 @@ export default function UploadSetupPage() {
                 s.timezone,
                 s.rubric,
                 s.supportQuestion ? `judges answer "${s.supportQuestion}" Yes / No` : null,
+                s.scoreStep && s.scoreStep < 1 ? `scores in steps of ${s.scoreStep}` : null,
+                s.commentsRequired !== null && s.commentsRequired !== undefined ? `comments required on ${s.commentsRequired} dimension${s.commentsRequired === 1 ? '' : 's'}` : null,
               ].filter(Boolean).join(' · ')}
             </p>
           </div>

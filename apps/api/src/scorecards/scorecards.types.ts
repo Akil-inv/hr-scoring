@@ -1,4 +1,4 @@
-import { ObjectType, Field, InputType, Int, registerEnumType } from '@nestjs/graphql';
+import { ObjectType, Field, Float, InputType, Int, registerEnumType } from '@nestjs/graphql';
 import { ScorecardStatus } from '@prisma/client';
 
 registerEnumType(ScorecardStatus, { name: 'ScorecardStatus' });
@@ -12,7 +12,7 @@ export class CriterionScoreEntity {
   @Field({ nullable: true }) guidanceText?: string;
   @Field() requiresComment!: boolean;
   @Field(() => Int, { nullable: true }) displayOrder?: number;
-  @Field(() => Int, { nullable: true }) score?: number;
+  @Field(() => Float, { nullable: true }) score?: number;
   @Field({ nullable: true }) comment?: string;
 }
 
@@ -26,7 +26,7 @@ export class ScorecardEntity {
   @Field() teamName!: string;
   @Field() projectName!: string;
   @Field(() => ScorecardStatus) status!: ScorecardStatus;
-  @Field(() => Int, { nullable: true }) totalScore?: number;
+  @Field(() => Float, { nullable: true }) totalScore?: number;
   @Field({ nullable: true }) overallStrengths?: string;
   @Field({ nullable: true }) areasForImprovement?: string;
   @Field({ nullable: true }) recommendation?: string;
@@ -39,7 +39,7 @@ export class ScorecardEntity {
 @InputType()
 export class CriterionScoreInput {
   @Field() criterionId!: string;
-  @Field(() => Int) score!: number;
+  @Field(() => Float) score!: number;
   @Field({ nullable: true }) comment?: string;
 }
 

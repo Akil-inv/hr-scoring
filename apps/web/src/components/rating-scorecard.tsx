@@ -16,11 +16,18 @@ export type RatingRow = {
   description?: string | null;
   minScore: number;
   maxScore: number;
+  /** Finest step allowed: 1 for whole numbers, 0.25 to allow 3.75. */
+  scoreIncrement?: number;
   requiresComment?: boolean;
   scoringAnchors?: { score: number; label: string; text: string }[] | string | null;
 };
 
 type Entry = { score: number | null; comment: string };
+
+/** 3 → "3", 3.5 → "3.5", 3.75 → "3.75". */
+export function showScore(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100);
+}
 
 function anchorsOf(row: RatingRow): { score: number; label: string; text: string }[] {
   const raw = typeof row.scoringAnchors === 'string' ? JSON.parse(row.scoringAnchors) : row.scoringAnchors;
@@ -58,6 +65,9 @@ export default function RatingScorecard({
         const anchors = anchorsOf(row);
         const lit = touches(s.score, anchors);
         const levels = Array.from({ length: row.maxScore - row.minScore + 1 }, (_, k) => row.minScore + k);
+        const step = row.scoreIncrement && row.scoreIncrement < 1 ? row.scoreIncrement : 1;
+        // The whole number a score belongs to: 3.75 sits in the 3 button.
+        const band = s.score === null ? null : Math.floor(s.score + 1e-9);
         const scoreMissing = engaged && s.score === null;
         const commentMissing = engaged && row.requiresComment !== false && !(s.comment || '').trim();
         const between = s.score !== null && !anchors.some((a) => a.score === s.score) && lit.size === 2;
@@ -67,25 +77,47 @@ export default function RatingScorecard({
           <section key={row.criterionId} className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
             <div className="flex items-baseline justify-between gap-3">
               <h3 className="text-lg font-semibold text-slate-900">{i + 1}. {row.criterionName}</h3>
-              <span className="shrink-0 text-sm text-slate-500">{s.score === null ? 'not rated' : `${s.score} / ${row.maxScore}`}</span>
+              <span className="shrink-0 text-sm text-slate-500">{s.score === null ? 'not rated' : `${showScore(s.score)} / ${row.maxScore}`}</span>
             </div>
             {row.description && <p className="mt-0.5 text-sm text-slate-600">{row.description}</p>}
 
             <div className="mt-3 flex gap-2" role="radiogroup" aria-label={`${row.criterionName} rating`}>
-              {levels.map((v) => (
-                <button key={v} type="button" role="radio" aria-checked={s.score === v} disabled={locked}
-                  onClick={() => onScore(row.criterionId, v)}
-                  className={`h-12 flex-1 rounded-lg border text-lg font-semibold tabular-nums transition-colors disabled:cursor-not-allowed ${
-                    s.score === v
-                      ? 'border-slate-900 bg-slate-900 text-white'
-                      : scoreMissing
-                        ? 'border-red-300 bg-red-50 text-slate-700 hover:border-slate-500'
-                        : 'border-slate-300 bg-white text-slate-700 hover:border-slate-500'
-                  }`}>
-                  {v}
-                </button>
-              ))}
+              {levels.map((v) => {
+                const chosen = band === v;
+                // The chosen number opens into a slider for the steps above it
+                // (3.00 to 3.75). The top of the scale has nothing above it.
+                const top = Math.min(v + 1 - step, row.maxScore);
+                const fine = chosen && step < 1 && top > v;
+                if (fine) {
+                  return (
+                    <div key={v} role="radio" aria-checked
+                      className="flex h-14 flex-[3.2] items-center gap-3 rounded-lg border border-slate-900 bg-slate-900 px-3 text-white transition-all">
+                      <span className="w-12 shrink-0 text-xl font-semibold tabular-nums">{showScore(s.score!)}</span>
+                      <input type="range" min={v} max={top} step={step} value={s.score!} disabled={locked}
+                        aria-label={`${row.criterionName}: fine-tune between ${v} and ${showScore(top)}`}
+                        onChange={(e) => onScore(row.criterionId, Number(e.target.value))}
+                        className="h-2 min-w-0 flex-1 cursor-pointer accent-white disabled:cursor-not-allowed" />
+                    </div>
+                  );
+                }
+                return (
+                  <button key={v} type="button" role="radio" aria-checked={chosen} disabled={locked}
+                    onClick={() => onScore(row.criterionId, v)}
+                    className={`h-14 flex-1 rounded-lg border text-lg font-semibold tabular-nums transition-all disabled:cursor-not-allowed ${
+                      chosen
+                        ? 'border-slate-900 bg-slate-900 text-white'
+                        : scoreMissing
+                          ? 'border-red-300 bg-red-50 text-slate-700 hover:border-slate-500'
+                          : 'border-slate-300 bg-white text-slate-700 hover:border-slate-500'
+                    }`}>
+                    {v}
+                  </button>
+                );
+              })}
             </div>
+            {step < 1 && s.score === null && !locked && (
+              <p className="mt-1.5 text-xs text-slate-500">Tap a number; a slider opens in it to fine-tune (e.g. {row.minScore + 2}.75).</p>
+            )}
             {scoreMissing && <p className="mt-1.5 text-sm text-red-700">Choose a rating.</p>}
 
             {anchors.length > 0 && (
@@ -99,16 +131,16 @@ export default function RatingScorecard({
                     <span>{a.text}</span>
                   </div>
                 ))}
-                {between && <p className="px-3 text-sm text-slate-600">{s.score} sits between {lo} and {hi}.</p>}
+                {between && <p className="px-3 text-sm text-slate-600">{showScore(s.score!)} sits between {lo} and {hi}.</p>}
               </div>
             )}
 
             <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor={`c-${row.criterionId}`}>
-              Comments <span className="font-normal text-slate-500">(required)</span>
+              Comments <span className="font-normal text-slate-500">{row.requiresComment !== false ? '(required)' : '(optional)'}</span>
             </label>
             <textarea id={`c-${row.criterionId}`} value={s.comment || ''} disabled={locked} rows={5}
               onChange={(e) => onComment(row.criterionId, e.target.value)}
-              placeholder="What did you see or hear that supports this rating?"
+              placeholder={row.requiresComment !== false ? 'What did you see or hear that supports this rating?' : 'Optional: anything worth noting on this dimension'}
               className={`mt-1.5 w-full resize-y rounded-lg border-2 bg-slate-50 px-4 py-3 text-base leading-relaxed text-slate-900 placeholder-slate-500 outline-none focus:bg-white disabled:opacity-60 ${
                 commentMissing ? 'border-red-500 bg-red-50' : 'border-slate-200 focus:border-slate-900'
               }`}

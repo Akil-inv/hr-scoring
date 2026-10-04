@@ -226,7 +226,8 @@ export class SetupUploadService {
   private async createRubric(tx: Prisma.TransactionClient, eventId: string, wb: ParsedWorkbook) {
     if (wb.criteria.length > 0) return this.createPointsRubric(tx, eventId, wb);
     const fromSheet = wb.rating.length > 0;
-    const dims: RatingDimension[] = fromSheet ? wb.rating : LAP_RUBRIC.dimensions;
+    const dims: (RatingDimension & { requiresComment?: boolean })[] = fromSheet ? wb.rating : LAP_RUBRIC.dimensions;
+    const step = wb.event?.scoreStep ?? 0.25;
     const template = await tx.scoringTemplate.create({
       data: {
         eventId,
@@ -238,12 +239,13 @@ export class SetupUploadService {
         status: 'ACTIVE',
       },
     });
-    // Every rating needs a comment: the comments are the record of why.
+    // Comments are required unless the Rubric sheet says N for a dimension:
+    // the comments are the record of why.
     await tx.scoringCriterion.createMany({
       data: dims.map((d, i) => ({
         templateId: template.id, name: d.name, description: d.descriptor || null,
-        minScore: RATING_MIN, maxScore: RATING_MAX, weight: 1, displayOrder: i,
-        requiresComment: true, scoringAnchors: ratingAnchors(d),
+        minScore: RATING_MIN, maxScore: RATING_MAX, scoreIncrement: step, weight: 1, displayOrder: i,
+        requiresComment: d.requiresComment !== false, scoringAnchors: ratingAnchors(d),
       })),
     });
   }
