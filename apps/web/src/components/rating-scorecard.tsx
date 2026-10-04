@@ -84,39 +84,48 @@ export default function RatingScorecard({
             <div className="mt-3 flex gap-2" role="radiogroup" aria-label={`${row.criterionName} rating`}>
               {levels.map((v) => {
                 const chosen = band === v;
-                // The chosen number opens into a slider for the steps above it
-                // (3.00 to 3.75). The top of the scale has nothing above it.
-                const top = Math.min(v + 1 - step, row.maxScore);
-                const fine = chosen && step < 1 && top > v;
-                if (fine) {
-                  return (
-                    <div key={v} role="radio" aria-checked
-                      className="flex h-14 flex-[3.2] items-center gap-3 rounded-lg border border-slate-900 bg-slate-900 px-3 text-white transition-all">
-                      <span className="w-12 shrink-0 text-xl font-semibold tabular-nums">{showScore(s.score!)}</span>
-                      <input type="range" min={v} max={top} step={step} value={s.score!} disabled={locked}
-                        aria-label={`${row.criterionName}: fine-tune between ${v} and ${showScore(top)}`}
-                        onChange={(e) => onScore(row.criterionId, Number(e.target.value))}
-                        className="h-2 min-w-0 flex-1 cursor-pointer accent-white disabled:cursor-not-allowed" />
-                    </div>
-                  );
-                }
                 return (
                   <button key={v} type="button" role="radio" aria-checked={chosen} disabled={locked}
-                    onClick={() => onScore(row.criterionId, v)}
-                    className={`h-14 flex-1 rounded-lg border text-lg font-semibold tabular-nums transition-all disabled:cursor-not-allowed ${
+                    onClick={() => { if (!chosen) onScore(row.criterionId, v); }}
+                    className={`h-14 min-w-0 flex-1 rounded-lg border bg-white text-lg font-semibold tabular-nums text-slate-800 transition-colors disabled:cursor-not-allowed ${
                       chosen
-                        ? 'border-slate-900 bg-slate-900 text-white'
+                        ? 'border-slate-600'
                         : scoreMissing
-                          ? 'border-red-300 bg-red-50 text-slate-700 hover:border-slate-500'
-                          : 'border-slate-300 bg-white text-slate-700 hover:border-slate-500'
+                          ? 'border-red-300 bg-red-50 hover:border-slate-500'
+                          : 'border-slate-300 hover:border-slate-500'
                     }`}>
-                    {v}
+                    {chosen ? showScore(s.score!) : v}
                   </button>
                 );
               })}
             </div>
-            {step < 1 && s.score === null && !locked && (
-              <p className="mt-1.5 text-xs text-slate-500">Tap a number; a slider opens in it to fine-tune (e.g. {row.minScore + 2}.75).</p>
+            {/* The fine-tune line, only under the chosen box: from that number
+                up to just below the next (3 to 3.75). 5 is the top, so none. */}
+            {step < 1 && (
+              <div className="flex gap-2" aria-hidden={band === null}>
+                {levels.map((v) => {
+                  const top = Math.min(v + 1 - step, row.maxScore);
+                  const show = band === v && top > v;
+                  return (
+                    <div key={v} className="min-w-0 flex-1 px-1">
+                      {show ? (
+                        <input type="range" className="fine-range" min={v} max={top} step={step} value={s.score!} disabled={locked}
+                          aria-label={`${row.criterionName}: fine-tune between ${v} and ${showScore(top)}`}
+                          onChange={(e) => onScore(row.criterionId, Math.round(Number(e.target.value) * 100) / 100)} />
+                      ) : <div className="h-7" />}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {step < 1 && !locked && (
+              <p className="text-xs text-slate-500">
+                {s.score === null
+                  ? `Tap a number. A line appears under it to fine-tune (e.g. ${row.minScore + 2}.75).`
+                  : band !== null && band < row.maxScore
+                    ? `Drag the line to fine-tune between ${band} and ${showScore(Math.min(band + 1 - step, row.maxScore))}.`
+                    : `${row.maxScore} is the top of the scale.`}
+              </p>
             )}
             {scoreMissing && <p className="mt-1.5 text-sm text-red-700">Choose a rating.</p>}
 
