@@ -46,6 +46,9 @@ export type Ref = { kind: EntityKind; id: string };
 export const EVENT_ROLES = ['ADMIN', 'COORDINATOR', 'PANEL_CHAIR', 'AUDITOR'] as const;
 export type EventRoleName = (typeof EVENT_ROLES)[number];
 
+/** Platform roles that may be on an event (besides super admins, who are on all). */
+export const STAFF_PLATFORM_ROLES: string[] = ['ADMIN', 'COORDINATOR', 'PANEL_CHAIR', 'AUDITOR'];
+
 export type ScopeOptions = {
   /** What a plain `id` argument (or an `id` inside an input or list) names. */
   id?: EntityKind;
@@ -178,7 +181,9 @@ export class EventAccessService {
   /** The caller's role on an event (null if not on it). Super admins act as admins. */
   async roleOn(user: { sub?: string; role?: string }, eventId: string): Promise<EventRoleName | null> {
     if (user.role === 'SUPER_ADMIN') return 'ADMIN';
-    if (!user.sub) return null;
+    // Judges and team reps use their own links, never the main app's event
+    // pages, whatever rows might name them.
+    if (!user.sub || !STAFF_PLATFORM_ROLES.includes(user.role ?? '')) return null;
     const row = await this.prisma.eventUser.findUnique({
       where: { userId_eventId: { userId: user.sub, eventId } },
       select: { role: true },

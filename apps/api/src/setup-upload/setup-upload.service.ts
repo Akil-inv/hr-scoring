@@ -344,7 +344,8 @@ export class SetupUploadService {
   private async findUsersByEmail(emails: string[]) {
     if (emails.length === 0) return [];
     return this.prisma.user.findMany({
-      where: { OR: emails.map((e) => ({ email: { equals: e, mode: 'insensitive' as const } })) },
+      // Staff accounts only: a judge's or team rep's account is never made an event admin.
+      where: { role: { in: ['SUPER_ADMIN', 'ADMIN', 'COORDINATOR', 'PANEL_CHAIR', 'AUDITOR'] }, OR: emails.map((e) => ({ email: { equals: e, mode: 'insensitive' as const } })) },
       select: { id: true, email: true },
     });
   }
