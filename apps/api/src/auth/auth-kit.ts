@@ -1,8 +1,9 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditAction } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { AuthKitModule } from '@akil-inv/auth-kit/nest';
-import { AuthEvent, AuthUser, UserAdapter } from '@akil-inv/auth-kit/server';
+import { AuthEvent, AuthUser, UserAdapter, smtpDeliveryFromEnv } from '@akil-inv/auth-kit/server';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { decryptText, encryptText } from '../crypto/field-crypto';
@@ -80,6 +81,22 @@ const EVENT_TEXT: Partial<Record<AuthEvent['type'], string>> = {
   password_reset_requested: 'Asked for a password reset',
 };
 
+/** SMTP settings from .env, if any. Email needs APP_URL too, for the links; without it email stays off. */
+function emailSettings() {
+  const log = new Logger('AuthKit');
+  if (!process.env.SMTP_HOST) {
+    log.log('Email is off (no SMTP_HOST): admins copy sign-in links.');
+    return {};
+  }
+  if (!process.env.APP_URL) {
+    log.error('SMTP_HOST is set but APP_URL is not, so emailed links would have no address. Email stays off: set APP_URL (e.g. http://100.119.28.22).');
+    return {};
+  }
+  const delivery = smtpDeliveryFromEnv(process.env)!;
+  log.log(`Email is on: ${delivery.describe()}. Links point to ${process.env.APP_URL}.`);
+  return { delivery, publicUrl: process.env.APP_URL };
+}
+
 export const authKitModule = AuthKitModule.forRootAsync({
   inject: [PrismaService, ConfigService, AuditService],
   useFactory: (prisma: PrismaService, config: ConfigService, audit: AuditService) => ({
@@ -87,8 +104,9 @@ export const authKitModule = AuthKitModule.forRootAsync({
       jwtSecret: config.get<string>('JWT_SECRET', 'dev-secret-change-in-production'),
       appName: 'HR Scoring',
       accessTokenTtl: 24 * 3600,
-      // No publicUrl: nothing is emailed, so links use whatever address the admin has open
-      // (the IP or the tailnet name), which is the one the person can reach too.
+      // Email is optional: with SMTP_HOST (and APP_URL) in .env, links are emailed;
+      // without, admins copy them, and links use the address the admin has open.
+      ...emailSettings(),
       // Two-factor secrets are encrypted like candidate data (AWS KMS when on).
       secretBox: { seal: (s: string) => encryptText(s), open: (s: string) => decryptText(s) },
       onEvent: async (e: AuthEvent) => {

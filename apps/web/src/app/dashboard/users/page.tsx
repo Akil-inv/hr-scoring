@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { AuthRequestsPanel, LinkBox, UserSecurityActions, UserSecurityBadges, useAuthKit, useUserSecurity } from '@akil-inv/auth-kit/react';
+import { AuthRequestsPanel, EmailStatus, LinkBox, UserSecurityActions, UserSecurityBadges, useAuthKit, useUserSecurity } from '@akil-inv/auth-kit/react';
 import type { Link as AuthLink } from '@akil-inv/auth-kit/client';
 import { HrAuthKit } from '@/lib/auth-kit';
 import { useAuthStore } from '@/lib/auth-store';
@@ -353,7 +353,8 @@ function UsersPageInner() {
         </div>
       )}
 
-      <div className="mb-6">
+      <div className="mb-6 space-y-4">
+        <EmailStatus defaultTo={currentUser?.email ?? ''} />
         <AuthRequestsPanel onChanged={() => { loadAll(); reloadSecurity(); }} />
       </div>
 
