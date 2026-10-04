@@ -1,5 +1,8 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { encryptionMode, initKeys } from '../crypto/field-crypto';
+import { fieldEncryption } from '../crypto/encryption-middleware';
+import { backfillEncryption } from '../crypto/backfill';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -23,6 +26,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     (this as any).$on('warn', (e: any) => {
       this.logger.warn(`Database warning: ${e.message}`);
     });
+
+    // Sensitive fields are encrypted on write and decrypted on read.
+    this.$use(fieldEncryption(this as any) as any);
   }
 
   async onModuleInit() {
@@ -31,7 +37,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       try {
         await this.$connect();
         this.logger.log('Database connected');
-        return;
+        break;
       } catch (error: any) {
         retries++;
         this.logger.warn(
@@ -44,6 +50,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs * retries));
       }
     }
+    // Unlock the data key before serving anything; refuse to start without it.
+    await initKeys(this.dataKey, process.env, (m) => this.logger.log(m));
+    const n = await backfillEncryption(this, (m) => this.logger.log(m));
+    if (n) this.logger.log(`Encrypted ${n} existing rows.`);
+  }
+
+  encryption() {
+    return encryptionMode();
   }
 
   async onModuleDestroy() {

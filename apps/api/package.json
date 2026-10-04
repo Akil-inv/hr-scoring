@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@apollo/server": "^4.11.0",
+    "@aws-sdk/client-kms": "^3.1146.0",
     "@aws-sdk/client-ses": "^3.1095.0",
     "@aws-sdk/client-sns": "^3.1095.0",
     "@nestjs/apollo": "^12.2.0",

@@ -19,7 +19,7 @@ export class HealthController {
     try {
       const start = Date.now();
       await this.prisma.$queryRaw`SELECT 1`;
-      checks.database = { status: 'connected', latencyMs: Date.now() - start };
+      checks.database = { status: 'connected', latencyMs: Date.now() - start, encryption: this.prisma.encryption?.() };
     } catch (e: any) {
       checks.database = { status: 'disconnected', error: e.message?.substring(0, 100) };
       checks.status = 'degraded';
