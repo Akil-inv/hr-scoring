@@ -38,7 +38,6 @@ FIXED_SHEETS = {
         ("Minimum panel size", False, 12, "Fewest judges an interview needs. Slots with fewer available judges are left without a panel. Default 2."),
         ("Admin emails", False, 40, "Comma-separated. Each must already have a login (Users & roles); they become admins of this event."),
         ("Support question", False, 22, "Asked of every judge as Yes / No, e.g. Support for LAP. Leave blank for none."),
-        ("Score step", False, 10, "How finely judges can rate: 1 (whole numbers), 0.5, 0.25 (e.g. 3.75) or 0.1. Default 0.25."),
     ],
     "Day template": [
         ("Block", True, 10, "A name for the half-day block, e.g. AM or PM. The Availability sheet uses the same names."),
@@ -61,6 +60,7 @@ FIXED_SHEETS = {
         ("Score: 3 (Moderate)", True, 40, "What a 3 looks like. 4 sits between 3 and 5."),
         ("Score: 5 (High)", True, 40, "What a 5 looks like."),
         ("Comment required", False, 12, "Y: judges must comment on this dimension. N: comment optional. Default Y."),
+        ("Score step", False, 10, "How finely judges can rate this dimension: 1 (whole numbers), 0.5, 0.25 (e.g. 3.75) or 0.1. Default 0.25."),
     ],
     "Criteria": [
         ("Criterion", True, 44, "A category (leave Parent blank) or a row inside one."),
@@ -96,8 +96,7 @@ README = [
     ("Rubric", "head"),
     ("The Rubric sheet holds the interview rubric: each dimension is rated 1 to 5 with a comment, and the candidate's score is the average rating out of 5. It comes filled in with the LAP rubric; edit it for another programme.", None),
     ("Support question on the Event sheet (e.g. Support for LAP) is asked of every judge as Yes / No.", None),
-    ("Score step on the Event sheet sets how finely judges can rate: 0.25 lets a judge give 3.75. Judges tap a number, then fine-tune it with the slider that appears in that button.", None),
-    ("Comment required on the Rubric sheet: Y makes the comment for that dimension mandatory, N makes it optional. Blank means Y.", None),
+    ("Each Rubric row also sets that dimension's scoring rules. Comment required: Y makes the comment mandatory, N optional (blank = Y). Score step: how finely judges can rate, 1, 0.5, 0.25 or 0.1 (blank = 0.25); with 0.25 a judge can give 3.75.", None),
     ("Criteria is an alternative points rubric (categories adding up to 100). Use either Rubric or Criteria, not both. With neither, the LAP rubric is used.", None),
 ]
 
@@ -119,23 +118,23 @@ LAP_RUBRIC = [
     ("Career Aspirations", "Clarity and ambition regarding future roles and career trajectory",
      "No clear career goals; lacks interest in leadership or generalist roles.",
      "Expresses some interest in leadership but lacks clarity or commitment to generalist path.",
-     "Strong aspiration for senior leadership; clearly articulates interest in generalist roles and long-term growth.", "Y"),
+     "Strong aspiration for senior leadership; clearly articulates interest in generalist roles and long-term growth.", "Y", 0.25),
     ("Drive and Motivation", "Energy, initiative, and commitment to personal and organizational goals",
      "Passive attitude; limited examples of initiative or ownership.",
      "Shows moderate drive; some examples of taking initiative or leading efforts.",
-     "Highly driven; consistently demonstrates ownership, resilience, and proactive leadership.", "Y"),
+     "Highly driven; consistently demonstrates ownership, resilience, and proactive leadership.", "Y", 0.25),
     ("Mobility & Rotation Readiness", "Willingness and preparedness for new roles or rotations",
      "Unwilling to relocate or rotate; prefers stability.",
      "Open to some mobility; hesitant about full rotation model.",
-     "Fully open to geographic and functional rotations; embraces diverse experiences.", "Y"),
+     "Fully open to geographic and functional rotations; embraces diverse experiences.", "Y", 0.25),
     ("Learning Agility & Adaptability", "Ability to learn quickly and adapt to new situations",
      "Resistant to change; struggles with unfamiliar situations.",
      "Some adaptability; has handled change with mixed success.",
-     "Highly agile; thrives in new environments and learns quickly from feedback.", "Y"),
+     "Highly agile; thrives in new environments and learns quickly from feedback.", "Y", 0.25),
     ("Enterprise Perspective", "Understanding and acting for the broader organization",
      "Narrow focus on own function; lacks cross-functional awareness.",
      "Some awareness of broader business; limited cross-functional experience.",
-     "Strong enterprise mindset; demonstrates strategic thinking and cross-functional collaboration.", "Y"),
+     "Strong enterprise mindset; demonstrates strategic thinking and cross-functional collaboration.", "Y", 0.25),
 ]
 
 
@@ -207,6 +206,7 @@ def build(data: dict, example: bool) -> Workbook:
             choices(ws, "E2:E200", ["Y", "N"])
         if name == "Rubric":
             choices(ws, "F2:F200", ["Y", "N"])
+            choices(ws, "G2:G200", ["1", "0.5", "0.25", "0.1"], strict=False)
             # The real rubric, not an example: no yellow, and wrapped to read.
             for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
                 for c in row:
@@ -218,7 +218,7 @@ def build(data: dict, example: bool) -> Workbook:
 def template_data() -> dict:
     cols = ["2026-10-19 AM", "2026-10-19 PM", "2026-10-20 AM", "2026-10-20 PM"]
     return {
-        "Event": [("UOB Interviews October 2026", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "admin@example.com", "Support for LAP", 0.25)],
+        "Event": [("UOB Interviews October 2026", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "admin@example.com", "Support for LAP")],
         "Rubric": LAP_RUBRIC,
         "Day template": TEMPLATE_DAY,
         "Judges": [
@@ -290,7 +290,7 @@ def sample_data() -> dict:
             row.append(SAMPLE_PLAN.get((d, b), {}).get(key, "No"))
         availability.append((email, *row))
     return {
-        "Event": [("October Graduate Interviews", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "", "Support for LAP", 0.25)],
+        "Event": [("October Graduate Interviews", "UOB Plaza 1, Singapore", "Asia/Singapore", 2, "", "Support for LAP")],
         "Rubric": LAP_RUBRIC,
         "Day template": TEMPLATE_DAY,
         "Judges": [(n, e, f"+659000{i:04d}", "UOB", "Panel member", "L3") for i, (n, e) in enumerate(JUDGES, 1)],

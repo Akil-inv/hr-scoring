@@ -182,27 +182,28 @@ describe('Rubric sheet (1-5 ratings)', () => {
     expect(msgs(r, 'errors')).toEqual([]);
     expect(r.summary.rubric).toBe('3 dimensions rated 1-5');
     expect(r.summary.supportQuestion).toBe('Recommend for programme');
-    expect(r.workbook.rating[1]).toEqual({ row: 3, name: 'Agility', descriptor: 'About Agility', low: 'Agility low', moderate: 'Agility moderate', high: 'Agility high', requiresComment: true });
+    expect(r.workbook.rating[1]).toEqual({ row: 3, name: 'Agility', descriptor: 'About Agility', low: 'Agility low', moderate: 'Agility moderate', high: 'Agility high', requiresComment: true, scoreStep: 0.25 });
     expect(r.summary.scoreStep).toBe(0.25);
   });
 
-  it('lets each dimension make its comment optional, and sets the score step', () => {
-    const H = [...HEAD, 'Comment required'];
-    const ev = [[...EVENT[0], 'Score step'], [...EVENT[1], 0.5]];
-    const r = checkWorkbook(book({ Event: ev, Rubric: [H, [...dim('Drive'), 'Y'], [...dim('Agility'), 'N'], [...dim('Mobility')]] }));
+  it('sets comment and score step per dimension', () => {
+    const H = [...HEAD, 'Comment required', 'Score step'];
+    const r = checkWorkbook(book({ Rubric: [H, [...dim('Drive'), 'Y', 0.5], [...dim('Agility'), 'N', 0.5], [...dim('Mobility'), null, 0.5]] }));
     expect(msgs(r, 'errors')).toEqual([]);
     expect(r.workbook.rating.map((d) => d.requiresComment)).toEqual([true, false, true]);
     expect(r.summary.commentsRequired).toBe(2);
     expect(r.summary.scoreStep).toBe(0.5);
+    const mixed = checkWorkbook(book({ Rubric: [H, [...dim('A'), 'Y', 1], [...dim('B'), 'Y', 0.25], dim('C')] }));
+    expect(mixed.workbook.rating.map((d) => d.scoreStep)).toEqual([1, 0.25, 0.25]);
+    expect(mixed.summary.scoreStep).toBeNull();
   });
 
   it('refuses a score step or comment flag it does not know', () => {
-    const H = [...HEAD, 'Comment required'];
-    const ev = [[...EVENT[0], 'Score step'], [...EVENT[1], 0.3]];
-    const r = checkWorkbook(book({ Event: ev, Rubric: [H, [...dim('A'), 'maybe'], dim('B'), dim('C')] }));
+    const H = [...HEAD, 'Comment required', 'Score step'];
+    const r = checkWorkbook(book({ Rubric: [H, [...dim('A'), 'maybe', 0.3], dim('B'), dim('C')] }));
     expect(msgs(r, 'errors')).toEqual([
-      'Event:2 Score step must be one of 1, 0.5, 0.25, 0.1 (or blank for 0.25).',
       'Rubric:2 Comment required for "A" must be Y or N (got "maybe").',
+      'Rubric:2 Score step for "A" must be one of 1, 0.5, 0.25, 0.1 (or blank for 0.25).',
     ]);
   });
 

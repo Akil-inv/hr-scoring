@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { LAP_RUBRIC, RATING_MAX, RATING_MIN, RatingDimension, ratingAnchors } from '../scoring-templates/lap-rubric';
-import { checkWorkbook, CheckResult, Issue, ParsedWorkbook } from './workbook';
+import { checkWorkbook, CheckResult, DEFAULT_SCORE_STEP, Issue, ParsedWorkbook } from './workbook';
 
 /** What the upload page shows before anything is saved. */
 export type UploadPreview = Omit<CheckResult, 'workbook'> & {
@@ -226,8 +226,7 @@ export class SetupUploadService {
   private async createRubric(tx: Prisma.TransactionClient, eventId: string, wb: ParsedWorkbook) {
     if (wb.criteria.length > 0) return this.createPointsRubric(tx, eventId, wb);
     const fromSheet = wb.rating.length > 0;
-    const dims: (RatingDimension & { requiresComment?: boolean })[] = fromSheet ? wb.rating : LAP_RUBRIC.dimensions;
-    const step = wb.event?.scoreStep ?? 0.25;
+    const dims: (RatingDimension & { requiresComment?: boolean; scoreStep?: number })[] = fromSheet ? wb.rating : LAP_RUBRIC.dimensions;
     const template = await tx.scoringTemplate.create({
       data: {
         eventId,
@@ -244,7 +243,7 @@ export class SetupUploadService {
     await tx.scoringCriterion.createMany({
       data: dims.map((d, i) => ({
         templateId: template.id, name: d.name, description: d.descriptor || null,
-        minScore: RATING_MIN, maxScore: RATING_MAX, scoreIncrement: step, weight: 1, displayOrder: i,
+        minScore: RATING_MIN, maxScore: RATING_MAX, scoreIncrement: d.scoreStep ?? DEFAULT_SCORE_STEP, weight: 1, displayOrder: i,
         requiresComment: d.requiresComment !== false, scoringAnchors: ratingAnchors(d),
       })),
     });
