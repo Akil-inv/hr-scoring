@@ -356,3 +356,8 @@ input[type="range"].fine-range::-webkit-slider-thumb:hover { transform: none; }
 input[type="range"].fine-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; border: 0; background: #475569; }
 input[type="range"].fine-range:focus-visible { outline: 2px solid #475569; outline-offset: 1px; border-radius: 4px; }
 input[type="range"].fine-range:disabled { cursor: not-allowed; opacity: 0.5; }
+/* Inside the box: the bottom strip of the box is the drag area. */
+input[type="range"].fine-range.fine-range-inside { height: 24px; display: block; }
+input[type="range"].fine-range.fine-range-inside:focus-visible { outline: none; }
+input[type="range"].fine-range.fine-range-inside:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(71, 85, 105, 0.22); }
+input[type="range"].fine-range.fine-range-inside:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px rgba(71, 85, 105, 0.22); }

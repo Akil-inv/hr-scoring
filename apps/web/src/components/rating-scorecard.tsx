@@ -84,6 +84,23 @@ export default function RatingScorecard({
             <div className="mt-3 flex gap-2" role="radiogroup" aria-label={`${row.criterionName} rating`}>
               {levels.map((v) => {
                 const chosen = band === v;
+                const top = Math.min(v + 1 - step, row.maxScore);
+                // The chosen box carries a thin fine-tune line along its bottom
+                // edge, from that number up to just below the next (3 to 3.75).
+                // 5 is the top, so it has none.
+                if (chosen && step < 1 && top > v) {
+                  return (
+                    <div key={v} role="radio" aria-checked
+                      className="relative h-14 min-w-0 flex-1 rounded-lg border border-slate-600 bg-white text-slate-800">
+                      <span className="absolute inset-x-0 top-2 text-center text-lg font-semibold leading-none tabular-nums">{showScore(s.score!)}</span>
+                      <div className="absolute inset-x-1.5 bottom-0">
+                        <input type="range" className="fine-range fine-range-inside" min={v} max={top} step={step} value={s.score!} disabled={locked}
+                          aria-label={`${row.criterionName}: fine-tune between ${v} and ${showScore(top)}`}
+                          onChange={(e) => onScore(row.criterionId, Math.round(Number(e.target.value) * 100) / 100)} />
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <button key={v} type="button" role="radio" aria-checked={chosen} disabled={locked}
                     onClick={() => { if (!chosen) onScore(row.criterionId, v); }}
@@ -99,29 +116,10 @@ export default function RatingScorecard({
                 );
               })}
             </div>
-            {/* The fine-tune line, only under the chosen box: from that number
-                up to just below the next (3 to 3.75). 5 is the top, so none. */}
-            {step < 1 && (
-              <div className="flex gap-2" aria-hidden={band === null}>
-                {levels.map((v) => {
-                  const top = Math.min(v + 1 - step, row.maxScore);
-                  const show = band === v && top > v;
-                  return (
-                    <div key={v} className="min-w-0 flex-1 px-1">
-                      {show ? (
-                        <input type="range" className="fine-range" min={v} max={top} step={step} value={s.score!} disabled={locked}
-                          aria-label={`${row.criterionName}: fine-tune between ${v} and ${showScore(top)}`}
-                          onChange={(e) => onScore(row.criterionId, Math.round(Number(e.target.value) * 100) / 100)} />
-                      ) : <div className="h-7" />}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
             {step < 1 && !locked && (
-              <p className="text-xs text-slate-500">
+              <p className="mt-1.5 text-xs text-slate-500">
                 {s.score === null
-                  ? `Tap a number. A line appears under it to fine-tune (e.g. ${row.minScore + 2}.75).`
+                  ? `Tap a number. A line appears in it to fine-tune (e.g. ${row.minScore + 2}.75).`
                   : band !== null && band < row.maxScore
                     ? `Drag the line to fine-tune between ${band} and ${showScore(Math.min(band + 1 - step, row.maxScore))}.`
                     : `${row.maxScore} is the top of the scale.`}
