@@ -63,8 +63,8 @@ describe('field crypto', () => {
     const a = encryptText('secret');
     setKeys('off', []);
     expect(() => decryptText(a)).toThrow(/no encryption key/);
-    const store = { findMany: async () => [{ version: 1, kmsKeyId: 'k', encryptedKey: Buffer.alloc(1) }], create: async () => ({}) };
-    await expect(initKeys(store, {})).rejects.toThrow(/KMS_KEY_ID is not set/);
+    const store = { findMany: async () => [{ version: 1, kmsKeyId: 'k', encryptedKey: Buffer.alloc(1) }], create: async () => ({}), update: async () => ({}) };
+    await expect(initKeys(store, {})).rejects.toThrow(/no key is set/);
   });
 
   it('off mode leaves values alone', () => {

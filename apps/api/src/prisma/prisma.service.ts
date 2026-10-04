@@ -1,8 +1,8 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { encryptionMode, initKeys } from '../crypto/field-crypto';
+import { encryptionMode } from '../crypto/field-crypto';
 import { fieldEncryption } from '../crypto/encryption-middleware';
-import { backfillEncryption } from '../crypto/backfill';
+import { encryptionStatus, startEncryption } from '../crypto/startup';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -51,13 +51,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       }
     }
     // Unlock the data key before serving anything; refuse to start without it.
-    await initKeys(this.dataKey, process.env, (m) => this.logger.log(m));
-    const n = await backfillEncryption(this, (m) => this.logger.log(m));
-    if (n) this.logger.log(`Encrypted ${n} existing rows.`);
+    await startEncryption(this, process.env, (m) => (m.startsWith('WARNING') ? this.logger.warn(m) : this.logger.log(m)));
   }
 
   encryption() {
     return encryptionMode();
+  }
+
+  encryptionStatus() {
+    return encryptionStatus(this);
   }
 
   async onModuleDestroy() {

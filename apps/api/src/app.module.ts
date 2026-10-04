@@ -23,6 +23,7 @@ import { ExportModule } from './export/export.module';
 import { NotificationModule } from './notification/notification.module';
 import { UsersModule } from './users/users.module';
 import { HealthController } from './health.controller';
+import { EncryptionController } from './crypto/encryption.controller';
 import { JudgePortalModule } from './judge-portal/judge-portal.module';
 import { OperationsModule } from './operations/operations.module';
 import { SetupUploadModule } from './setup-upload/setup-upload.module';
@@ -35,7 +36,7 @@ import { EventScopeGuard } from './auth/event-scope.guard';
 import { GqlThrottlerGuard } from './common/gql-throttler.guard';
 
 @Module({
-  controllers: [HealthController],
+  controllers: [HealthController, EncryptionController],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     /**

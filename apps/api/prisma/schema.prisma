@@ -908,13 +908,19 @@ model SlotJudge {
   @@map("slot_judges")
 }
 
-/// The field-encryption data key(s), each encrypted by the AWS KMS key.
+/// The field-encryption data key(s), each encrypted by the AWS KMS key
+/// (kmsKeyId "local" when run with FIELD_ENCRYPTION_KEY and no KMS: then only
+/// the fingerprint is stored).
 /// Never delete: without these rows the encrypted data cannot be read.
 model DataKey {
   id           Int      @id @default(autoincrement())
   version      Int      @unique
   kmsKeyId     String   @map("kms_key_id")
   encryptedKey Bytes    @map("encrypted_key")
+  /// Fingerprint of the key, to check a recovery key against. Reveals nothing about it.
+  checkValue   String?  @map("check_value")
+  /// When the recovery kit was last printed.
+  recoveryExportedAt DateTime? @map("recovery_exported_at")
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("data_keys")

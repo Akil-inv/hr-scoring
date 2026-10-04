@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { createClient } from '@/lib/graphql-client';
 import { useEventStore } from '@/lib/event-store';
+import EncryptionStatus from '@/components/encryption-status';
 import {
   USERS_QUERY,
   EVENT_USERS_QUERY,
@@ -267,6 +268,8 @@ export default function UsersPage() {
           {showCreate ? 'Cancel' : 'Add user'}
         </button>
       </div>
+
+      {currentUser?.role === 'SUPER_ADMIN' && <EncryptionStatus token={token} />}
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-sm text-red-300">
