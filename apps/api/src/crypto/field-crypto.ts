@@ -115,7 +115,12 @@ export type DataKeyStore = {
 
 async function kmsApi(env: NodeJS.ProcessEnv) {
   const sdk = await import('@aws-sdk/client-kms');
-  const client = new sdk.KMSClient({ region: env.AWS_REGION || env.AWS_DEFAULT_REGION || 'ap-southeast-1' });
+  // Fail in seconds, not minutes, when KMS cannot be reached, so the log says why.
+  const client = new sdk.KMSClient({
+    region: env.AWS_REGION || env.AWS_DEFAULT_REGION || 'ap-southeast-1',
+    maxAttempts: 3,
+    requestHandler: { connectionTimeout: 5000, requestTimeout: 15000 },
+  });
   return {
     generate: async (keyId: string) => {
       const out = await client.send(new sdk.GenerateDataKeyCommand({ KeyId: keyId, KeySpec: 'AES_256' }));
@@ -215,7 +220,9 @@ export async function initKeys(store: DataKeyStore, env: NodeJS.ProcessEnv = pro
       }
       for (const r of rows) unlocked.push({ version: r.version, key: await kms.unwrap(r.encryptedKey, r.kmsKeyId) });
     } catch (e: any) {
-      throw new Error(`Could not unlock the encryption key with AWS KMS: ${e.message}. Fix KMS access, or start with the recovery key (${BREAK_GLASS}).`);
+      const network = /timeout|timed out|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket|aborted/i.test(`${e.name} ${e.message}`);
+      const hint = network ? ' The server cannot reach the KMS service: a server without internet access needs a KMS VPC endpoint.' : '';
+      throw new Error(`Could not unlock the encryption key with AWS KMS: ${e.name}: ${e.message}.${hint} Fix KMS access, or start with the recovery key (${BREAK_GLASS}).`);
     }
     for (const r of rows) {
       const k = unlocked.find((u) => u.version === r.version)!.key;
