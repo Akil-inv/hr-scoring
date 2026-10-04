@@ -15,7 +15,7 @@
     "test:cov": "jest --coverage"
   },
   "dependencies": {
-    "@akil-inv/auth-kit": "file:vendor/akil-inv-auth-kit-0.2.1.tgz",
+    "@akil-inv/auth-kit": "file:vendor/akil-inv-auth-kit-0.2.2.tgz",
     "@apollo/server": "^5.5.1",
     "@as-integrations/express5": "^1.1.2",
     "@aws-sdk/client-kms": "^3.1146.0",
@@ -39,6 +39,7 @@
     "graphql-type-json": "^0.3.2",
     "helmet": "^8.3.0",
     "multer": "^2.2.0",
+    "officecrypto-tool": "^0.0.19",
     "papaparse": "^5.4.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
