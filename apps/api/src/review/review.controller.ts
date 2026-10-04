@@ -34,7 +34,8 @@ export class ReviewController {
   /** Admins of the event only; a session named in the path must be in that event. */
   private check(req: any, eventId: string, sessionId?: string, extra: Ref[] = []) {
     const refs: Ref[] = sessionId ? [{ kind: 'session', id: sessionId }, ...extra] : extra;
-    return this.access.assert(req.user, eventId, ADMINS, refs);
+    // POSTs change the event (decisions, reopening, closing): not once it is done.
+    return this.access.assert(req.user, eventId, ADMINS, refs, { write: req.method !== 'GET' });
   }
 
   private date(d?: string): string | undefined {

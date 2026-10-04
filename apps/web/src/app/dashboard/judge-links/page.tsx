@@ -23,6 +23,7 @@ export default function JudgeLinksPage() {
   const selectedEventId = useEventId();
   const token = useAuthStore((s) => s.token);
   const ev = evData?.events?.find((e: any) => e.id === selectedEventId);
+  if (!selectedEventId) return <p className="text-sm text-slate-400">Choose an event in the sidebar.</p>;
   if (!ev) return <p className="text-sm text-slate-400">Loading…</p>;
   if (ev.setupMode === 'UPLOAD') return <DayLinks key={ev.id} eventId={ev.id} eventName={ev.name} token={token} />;
   return <WizardJudgeLinksPage />;

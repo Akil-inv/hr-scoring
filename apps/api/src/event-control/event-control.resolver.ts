@@ -1,8 +1,8 @@
-import { Args, Context, Field, InputType, Int, Mutation, ObjectType, Query, Resolver } from '@nestjs/graphql';
+import { Args, Field, InputType, Int, Mutation, ObjectType, Query, Resolver } from '@nestjs/graphql';
 import { GraphQLISODateTime } from '@nestjs/graphql';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { AllowedWhenDone, NotEventScoped } from '../auth/event-access';
+import { AllowedWhenDone, EventAccessService, NotEventScoped } from '../auth/event-access';
 import { EventControlService } from './event-control.service';
 
 @ObjectType()
@@ -94,7 +94,7 @@ const ANY_STAFF = ['ADMIN', 'COORDINATOR', 'PANEL_CHAIR', 'AUDITOR'];
  */
 @Resolver()
 export class EventControlResolver {
-  constructor(private service: EventControlService) {}
+  constructor(private service: EventControlService, private access: EventAccessService) {}
 
   @NotEventScoped()
   @Roles(...ANY_STAFF)
@@ -105,8 +105,8 @@ export class EventControlResolver {
 
   @Roles(...ANY_STAFF)
   @Query(() => EventControlDetail)
-  eventControl(@Args('eventId') eventId: string, @CurrentUser() user: any, @Context() ctx: any) {
-    return this.service.detail(eventId, user, ctx.req.eventAccess.role);
+  async eventControl(@Args('eventId') eventId: string, @CurrentUser() user: any) {
+    return this.service.detail(eventId, user, (await this.access.roleOn(user, eventId))!);
   }
 
   @Roles('ADMIN')

@@ -1,4 +1,4 @@
-import { ForbiddenException, Global, Injectable, Module, NotFoundException, SetMetadata } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Global, Injectable, Module, NotFoundException, SetMetadata } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -70,6 +70,8 @@ export const NotEventScoped = () => SetMetadata(NOT_EVENT_SCOPED_KEY, true);
 /** A REST handler that calls EventAccessService.assert itself (multipart bodies are parsed after guards). */
 export const EventCheckedInHandler = () => SetMetadata(CHECKED_IN_HANDLER_KEY, true);
 
+export const DONE_MESSAGE = 'This event is done: only its record is kept, so nothing in it can change.';
+
 export class NotOnEventError extends ForbiddenException {
   constructor() {
     super({ statusCode: 403, code: 'not_on_event', message: "You're not on this event. Ask one of its admins to add you (see Event Control)." });
@@ -112,7 +114,10 @@ export class EventAccessService {
 
   /** The event an id belongs to, or null when there is no such record. */
   async eventOf(ref: Ref): Promise<string | null> {
-    if (!UUID.test(ref.id)) return null;
+    // Only the canonical form: the database also accepts ids without hyphens,
+    // in braces or as urn:uuid:..., and an id this check skipped as "not a
+    // record" must not be one the operation then finds.
+    if (!UUID.test(ref.id)) throw new BadRequestException(`Not a valid id: ${String(ref.id).slice(0, 60)}`);
     const where = { id: ref.id };
     const p = this.prisma as any;
     const pick = async (model: string) => (await p[model].findUnique({ where, select: { eventId: true } }))?.eventId ?? null;
@@ -157,6 +162,10 @@ export class EventAccessService {
       if (eventId && e !== eventId) throw new ForbiddenException('These records belong to different events.');
       eventId = e;
     }
+    if (eventId) {
+      const ev = await this.prisma.event.findUnique({ where: { id: eventId }, select: { deletedAt: true } });
+      if (!ev || ev.deletedAt) throw new NotFoundException('Event not found.');
+    }
     return eventId;
   }
 
@@ -186,11 +195,15 @@ export class EventAccessService {
     eventId: string | null | undefined,
     roles: readonly string[] = [],
     refs: Ref[] = [],
+    opts: { write?: boolean } = {},
   ): Promise<{ eventId: string; role: EventRoleName }> {
     if (!user?.sub) throw new ForbiddenException('Sign in first.');
+    if (eventId !== undefined && eventId !== null && typeof eventId !== 'string') throw new BadRequestException('Not a valid event id.');
     const all: Ref[] = eventId ? [{ kind: 'event', id: eventId }, ...refs] : refs;
     const resolved = await this.eventFor(all);
     if (!resolved) throw new NotFoundException('Not found.');
+    // A done event is a record: nothing in it changes any more.
+    if (opts.write && (await this.isDone(resolved))) throw new ForbiddenException(DONE_MESSAGE);
     if (user.role === 'SUPER_ADMIN') return { eventId: resolved, role: 'ADMIN' };
     const role = await this.roleOn(user, resolved);
     if (!role) throw new NotOnEventError();

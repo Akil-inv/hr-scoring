@@ -17,13 +17,13 @@ export class JudgeLinksController {
 
   @Get(':eventId')
   async list(@Param('eventId') eventId: string, @Req() req: any) {
-    await this.access.assert(req.user, eventId, OPERATORS);
+    await this.access.assert(req.user, eventId, OPERATORS, [], { write: true }); // makes missing links
     return this.service.dayLinks(eventId, req.user.sub);
   }
 
   @Post(':eventId/:linkId/reissue')
   async reissue(@Param('eventId') eventId: string, @Param('linkId') linkId: string, @Req() req: any) {
-    await this.access.assert(req.user, eventId, OPERATORS, [{ kind: 'judgeLink', id: linkId }]);
+    await this.access.assert(req.user, eventId, OPERATORS, [{ kind: 'judgeLink', id: linkId }], { write: true });
     return this.service.reissue(eventId, linkId, req.user.sub);
   }
 }

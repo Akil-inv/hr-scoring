@@ -23,12 +23,16 @@ export class NotificationController {
   /** The judge as stored, in an event the sender may act on. */
   private async recipient(req: any, eventId: unknown, judgeId: unknown) {
     if (typeof eventId !== 'string' || typeof judgeId !== 'string') throw new BadRequestException('Say which event and judge (eventId, judgeId).');
-    await this.access.assert(req.user, eventId, ['ADMIN', 'COORDINATOR'], [{ kind: 'judge', id: judgeId }]);
+    await this.access.assert(req.user, eventId, ['ADMIN', 'COORDINATOR'], [{ kind: 'judge', id: judgeId }], { write: true });
     const judge = await this.prisma.judge.findFirst({ where: { id: judgeId, eventId }, select: { name: true, email: true, phone: true, event: { select: { name: true } } } });
     if (!judge) throw new BadRequestException('That judge is not on this event.');
     // The link is made here, for this judge, on the site the request came from:
     // a link in the request could point anywhere.
-    const origin = typeof req.headers?.origin === 'string' && /^https?:\/\/[^\s/]+$/.test(req.headers.origin) ? req.headers.origin : '';
+    // APP_URL (the address people open the app at) when it is set, so a
+    // request can't name another site; otherwise the site the request came from.
+    const configured = (process.env.APP_URL ?? '').trim().replace(/\/+$/, '');
+    const fromRequest = typeof req.headers?.origin === 'string' && /^https?:\/\/[^\s/]+$/.test(req.headers.origin) ? req.headers.origin : '';
+    const origin = /^https?:\/\/[^\s]+$/.test(configured) ? configured : fromRequest;
     if (!origin) throw new BadRequestException('Send this from the app.');
     const link = `${origin}/judge/${this.portal.generateToken(judgeId)}?event=${eventId}`;
     return { judgeName: judge.name, judgeEmail: judge.email, judgePhone: judge.phone ?? '', eventName: judge.event.name, portalLink: link };

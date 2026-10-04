@@ -60,7 +60,8 @@ export default function Sidebar() {
   const navItems = event?.setupMode === 'WIZARD' ? wizardNav : interviewNav;
   // What someone may do depends on their role on the selected event
   // (super admins: everything).
-  const role = user?.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : (event?.role ?? '');
+  // With no event selected, the platform role (an admin can still set one up).
+  const role = user?.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : event ? (event.role ?? '') : (user?.role ?? '');
   const visibleItems = navItems.filter(
     (item) => !item.roles || item.roles.includes(role),
   );

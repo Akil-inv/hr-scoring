@@ -26,6 +26,12 @@ import {
  * after guards run); a test makes sure each one does or is marked otherwise.
  * The judge portal is @Public and authenticates by its link token.
  */
+/** The root field being checked, by its name in the request (its alias if it has one). */
+export function fieldKey(ctx: GqlExecutionContext): string {
+  const info = ctx.getInfo();
+  return String(info?.path?.key ?? info?.fieldName ?? '');
+}
+
 @Injectable()
 export class EventScopeGuard implements CanActivate {
   private readonly logger = new Logger('EventScope');
@@ -42,6 +48,13 @@ export class EventScopeGuard implements CanActivate {
 
     const ctx = GqlExecutionContext.create(context);
     const req = ctx.getContext().req;
+    // One request can hold several root fields (queries run them at the same
+    // time), so the role found is kept per field, never shared across them.
+    const field = fieldKey(ctx);
+    if (req) {
+      req.eventAccessByField ??= {};
+      delete req.eventAccessByField[field];
+    }
     const user = req?.user;
     if (!user) return true; // the auth guard has already answered
 
@@ -68,15 +81,11 @@ export class EventScopeGuard implements CanActivate {
       throw new ForbiddenException('This operation is not set up for event access checks.');
     }
 
-    const { eventId, role } = await this.access.assert(user, null, [], refs);
-    req.eventAccess = { eventId, role };
-
-    // A done event is a record: nothing in it changes any more.
-    if (ctx.getInfo()?.operation?.operation === 'mutation'
-      && !this.reflector.getAllAndOverride<boolean>(ALLOWED_WHEN_DONE_KEY, targets)
-      && (await this.access.isDone(eventId))) {
-      throw new ForbiddenException('This event is done: only its record is kept, so nothing in it can change.');
-    }
+    // A done event is a record: no mutation changes it, except who is on it.
+    const write = ctx.getInfo()?.operation?.operation === 'mutation'
+      && !this.reflector.getAllAndOverride<boolean>(ALLOWED_WHEN_DONE_KEY, targets);
+    const { eventId, role } = await this.access.assert(user, null, [], refs, { write });
+    req.eventAccessByField[field] = { eventId, role };
     return true;
   }
 }

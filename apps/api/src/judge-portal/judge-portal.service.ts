@@ -60,8 +60,9 @@ export class JudgePortalService {
         : { kind: 'EVENT' };
       return { judge, scope };
     }
-    const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { setupMode: true } });
-    if (event?.setupMode === 'UPLOAD') {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { setupMode: true, doneAt: true, deletedAt: true } });
+    if (!event || event.doneAt || event.deletedAt) throw new GoneException('This event is over. Thank you for judging.');
+    if (event.setupMode === 'UPLOAD') {
       // Interview events use day links only; an old whole-event link must not work.
       throw new NotFoundException('This link is not valid. Ask HR for your link for today.');
     }

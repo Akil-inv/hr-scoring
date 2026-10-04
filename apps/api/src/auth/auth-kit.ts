@@ -16,7 +16,12 @@ import { IS_PUBLIC_KEY } from './public.decorator';
  * /api/auth. This file is the connection to our users table.
  */
 
-const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN'];
+/**
+ * Account actions (invite and reset links, email changes, deleting accounts)
+ * are for super admins only: a reset link signs its holder in as that person,
+ * and events are private to the people on them.
+ */
+const ADMIN_ROLES = ['SUPER_ADMIN'];
 
 type Row = { id: string; email: string; passwordHash: string; name: string; role: string };
 const toAuthUser = (u: Row | null): (AuthUser & { role: string }) | null =>

@@ -12,6 +12,16 @@ ALTER TABLE "event_users" ADD COLUMN "added_by" UUID;
 UPDATE "events" SET "closed_at" = "updated_at"
 WHERE "status" IN ('COMPLETED', 'ARCHIVED') AND "closed_at" IS NULL;
 
+-- What someone may do on an event is now decided by their role on it, where
+-- until now their platform role decided and the role on an assignment was
+-- never used. So existing assignments take the person's platform role: each
+-- keeps exactly the rights they have today.
+UPDATE "event_users" eu SET "role" = (u."role"::text)::"EventRole"
+FROM "users" u
+WHERE eu."user_id" = u."id"
+  AND u."role"::text IN ('ADMIN', 'COORDINATOR', 'PANEL_CHAIR', 'AUDITOR')
+  AND eu."role"::text <> u."role"::text;
+
 -- Events are now private to the people on them. Until now, anyone with no
 -- assignment at all could reach every event; put each of them on every
 -- current event, in the role they hold today, so nobody loses access on

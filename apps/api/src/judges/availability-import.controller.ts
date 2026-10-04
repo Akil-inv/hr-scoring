@@ -38,7 +38,7 @@ export class AvailabilityImportController {
     @Body('eventId') eventId: string,
     @Req() req: any,
   ) {
-    await this.access.assert(req.user, typeof eventId === 'string' ? eventId : '', ['ADMIN', 'COORDINATOR']);
+    await this.access.assert(req.user, typeof eventId === 'string' ? eventId : '', ['ADMIN', 'COORDINATOR'], [], { write: true });
     const rows = parseSpreadsheet(file);
     const userId = req.user?.sub || req.user?.id;
     return this.judgesService.importAvailability(eventId, rows, userId);

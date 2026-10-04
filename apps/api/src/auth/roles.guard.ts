@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { ROLES_KEY } from './roles.decorator';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { fieldKey } from './event-scope.guard';
 
 /**
  * Global role that bypasses every @Roles() check.
@@ -58,7 +59,8 @@ export class RolesGuard implements CanActivate {
    */
   private getEventRole(context: ExecutionContext): string | null {
     if (context.getType<'graphql' | 'http'>() !== 'graphql') return null;
-    return GqlExecutionContext.create(context).getContext()?.req?.eventAccess?.role ?? null;
+    const ctx = GqlExecutionContext.create(context);
+    return ctx.getContext()?.req?.eventAccessByField?.[fieldKey(ctx)]?.role ?? null;
   }
 
   private getUser(context: ExecutionContext): RequestUser {

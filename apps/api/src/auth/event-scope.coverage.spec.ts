@@ -98,12 +98,21 @@ describe('event scope covers every operation', () => {
     expect(missing).toEqual([]);
   });
 
-  it('REST handlers marked as checking do call the access check', () => {
+  it('each REST handler marked as checking does call the access check', () => {
+    const silent: string[] = [];
     for (const f of files(SRC, '.controller.ts')) {
-      const src = readFileSync(f, 'utf8');
-      if (!src.includes('@EventCheckedInHandler()')) continue;
-      // Each marked handler's body mentions access.assert (directly or through a helper in the same file).
-      expect(src).toMatch(/access\.assert\(|this\.assertAccess\(|this\.check\(/);
+      const mod = require(f);
+      for (const cls of Object.values(mod) as any[]) {
+        if (typeof cls !== 'function' || !Reflect.getMetadata('path', cls)) continue;
+        for (const name of Object.getOwnPropertyNames(cls.prototype)) {
+          const fn = cls.prototype[name];
+          if (name === 'constructor' || typeof fn !== 'function' || Reflect.getMetadata('method', fn) === undefined) continue;
+          if (!meta(CHECKED_IN_HANDLER_KEY, fn, cls)) continue;
+          // The handler itself, or a helper in its class that does.
+          if (!/access\.assert\(|this\.check\(|this\.recipient\(/.test(fn.toString())) silent.push(`${cls.name}.${name}`);
+        }
+      }
     }
+    expect(silent).toEqual([]);
   });
 });

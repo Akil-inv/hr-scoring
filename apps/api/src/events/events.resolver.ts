@@ -40,7 +40,7 @@ export class EventsResolver {
     return this.eventsService.update(id, input, user.sub);
   }
 
-  @Roles('ADMIN', 'COORDINATOR', 'AUDITOR')
+  @Roles('ADMIN', 'COORDINATOR', 'PANEL_CHAIR', 'AUDITOR')
   @Query(() => EventEntity)
   async event(@Args('id') id: string) {
     return this.eventsService.findOne(id);

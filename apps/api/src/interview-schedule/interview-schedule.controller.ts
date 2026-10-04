@@ -38,7 +38,7 @@ export class InterviewScheduleController {
   @Post(':eventId/candidates/commit')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_BYTES } }))
   async commitCandidates(@Param('eventId') eventId: string, @UploadedFile() file: Express.Multer.File, @Req() req: any) {
-    await this.access.assert(req.user, eventId, ADMINS);
+    await this.access.assert(req.user, eventId, ADMINS, [], { write: true });
     return this.service.commitCandidates(eventId, SetupUploadService.assertFile(file), req.user.sub);
   }
 
@@ -47,13 +47,13 @@ export class InterviewScheduleController {
     await this.access.assert(req.user, eventId, OPERATORS, [
       ...(body?.sessionId ? [{ kind: 'session' as const, id: String(body.sessionId) }] : []),
       ...(body?.toSlotId ? [{ kind: 'timeSlot' as const, id: String(body.toSlotId) }] : []),
-    ]);
+    ], { write: true });
     return this.service.move(eventId, String(body?.sessionId ?? ''), String(body?.toSlotId ?? ''), req.user.sub);
   }
 
   @Post(':eventId/lock')
   async lock(@Param('eventId') eventId: string, @Body() body: { date?: string; locked?: boolean }, @Req() req: any) {
-    await this.access.assert(req.user, eventId, ADMINS);
+    await this.access.assert(req.user, eventId, ADMINS, [], { write: true });
     return this.service.setLock(eventId, String(body?.date ?? ''), body?.locked !== false, req.user.sub);
   }
 }

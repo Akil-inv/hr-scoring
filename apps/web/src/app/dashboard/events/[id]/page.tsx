@@ -78,8 +78,9 @@ function EventPage() {
   const closeDue = addMonths(new Date().toISOString(), ev.retentionMonths + ev.retentionExtraMonths);
 
   const workOnIt = () => {
-    useEventStore.setState({ eventId: ev.id });
-    reloadEvents();
+    const store = useEventStore.getState();
+    if (store.events.some((x) => x.id === ev.id)) store.selectEvent(ev.id);
+    else { useEventStore.setState({ eventId: ev.id, event: null }); reloadEvents(); }
     router.push(ev.setupMode === 'UPLOAD' ? (p && p.interviewsTotal > 0 ? '/dashboard/schedule' : '/dashboard/upload') : '/dashboard/event');
   };
 

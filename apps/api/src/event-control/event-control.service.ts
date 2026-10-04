@@ -328,7 +328,7 @@ export class EventControlService {
     }
     if (!ok) throw new BadRequestException('Your sign-in password is not right.');
 
-    const counts = await this.removeCandidateData(eventId, user.sub);
+    const counts = await this.removeCandidateData(eventId, user.sub, e.name);
     await this.audit.log({
       userId: user.sub, eventId, action: AuditAction.DELETE, entityType: 'Event', entityId: eventId,
       reason: 'Event marked done: candidate data removed, record kept', newValues: counts,
@@ -337,8 +337,16 @@ export class EventControlService {
   }
 
   /** The removal itself, in one transaction: all of it happens or none. */
-  private async removeCandidateData(eventId: string, userId: string) {
+  private async removeCandidateData(eventId: string, userId: string, name: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Checked again under a lock: another admin may have extended retention,
+      // or marked it done, since the checks above.
+      const [row] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM events WHERE id = ${eventId}::uuid FOR UPDATE`;
+      if (!row) throw new NotFoundException('Event not found.');
+      const now = await tx.event.findUnique({ where: { id: eventId } });
+      if (!now || now.doneAt) throw new BadRequestException('This event is already done.');
+      if (!lifecycle(now).due) throw new BadRequestException('Its retention was extended meanwhile; nothing was removed.');
+      if (now.name !== name) throw new BadRequestException('The event was renamed meanwhile; nothing was removed.');
       const teams = await tx.team.findMany({ where: { eventId }, select: { id: true, name: true, teamLeadName: true, teamLeadEmail: true, projectName: true }, orderBy: { createdAt: 'asc' } });
       const members = await tx.teamMember.findMany({ where: { team: { eventId } }, select: { name: true, email: true } });
       // Labels for the audit log, longest names first so "Ann Lee" goes before "Ann".
@@ -348,10 +356,12 @@ export class EventControlService {
         for (const v of [t.name, t.teamLeadName, t.teamLeadEmail, t.projectName]) if (v && v.trim().length > 2) labels.set(v.trim(), tag);
       });
       for (const m of members) for (const v of [m.name, m.email]) if (v && v.trim().length > 2 && !labels.has(v.trim())) labels.set(v.trim(), 'a candidate');
+      const escape = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const patterns = [...labels].sort((a, b) => b[0].length - a[0].length).map(([v, tag]) => [new RegExp(escape(v), 'gi'), tag] as const);
       const scrub = (text: string | null) => {
         if (!text) return text;
         let out = text;
-        for (const [v, tag] of [...labels].sort((a, b) => b[0].length - a[0].length)) out = out.split(v).join(tag);
+        for (const [re, tag] of patterns) out = out.replace(re, tag);
         return out;
       };
 
@@ -375,6 +385,7 @@ export class EventControlService {
       await tx.scorecard.updateMany({ where: { eventId }, data: { overallStrengths: null, areasForImprovement: null, recommendation: null, reopenReason: null } });
       await tx.criterionScore.updateMany({ where: { scorecard: { eventId } }, data: { comment: null } });
       await tx.judgingSession.updateMany({ where: { eventId }, data: { notes: null, delayReason: null } });
+      await tx.sessionJudge.updateMany({ where: { session: { eventId }, removedReason: { not: null } }, data: { removedReason: 'Removed when the event was marked done' } });
       await tx.conflictDeclaration.updateMany({ where: { eventId }, data: { reason: 'Removed when the event was marked done' } });
       const removedMessages = await tx.judgeMessage.deleteMany({ where: { eventId } });
       const removedLinks = await tx.judgeLink.deleteMany({ where: { eventId } });
@@ -452,7 +463,12 @@ export class EventControlService {
     if (!person) throw new BadRequestException('That person has no staff account. A super admin can create one (Users & roles).');
     const existing = await this.prisma.eventUser.findUnique({ where: { userId_eventId: { userId, eventId } } });
     if (existing) throw new ConflictException(`${person.name || person.email} is already on this event.`);
-    await this.prisma.eventUser.create({ data: { userId, eventId, role: r, addedById: by.sub } });
+    try {
+      await this.prisma.eventUser.create({ data: { userId, eventId, role: r, addedById: by.sub } });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException(`${person.name || person.email} is already on this event.`);
+      throw e;
+    }
     await this.log(by, eventId, `${person.name || person.email} added as ${label(r)}`, 'EventUser', userId);
     return true;
   }
@@ -491,9 +507,10 @@ export class EventControlService {
     return this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM events WHERE id = ${eventId}::uuid FOR UPDATE`;
       if (!locked.length) throw new NotFoundException('Event not found.');
+      const before = await tx.eventUser.count({ where: { eventId, role: 'ADMIN' } });
       const out = await change(tx);
-      const admins = await tx.eventUser.count({ where: { eventId, role: 'ADMIN' } });
-      if (admins === 0) throw new BadRequestException('An event must keep at least one admin. Add another admin first.');
+      const after = await tx.eventUser.count({ where: { eventId, role: 'ADMIN' } });
+      if (before > 0 && after === 0) throw new BadRequestException('An event must keep at least one admin. Add another admin first.');
       return out;
     });
   }

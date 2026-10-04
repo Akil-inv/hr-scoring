@@ -17,7 +17,9 @@ created, run, closed and finally reduced to a record.
   platform auditor can be an admin of one event and see nothing of another.
 - The platform role still decides what happens outside events: platform
   **Admins** (and super admins) can create events; **super admins** manage
-  accounts (Users & roles) and can open every event.
+  accounts (Users & roles: creating accounts, invite and reset links, deleting
+  accounts) and can open every event. Account actions are super-admin only
+  because a reset link signs its holder in as that person.
 - Judges and team reps don't use the main app; they keep their own links.
 
 Enforced in the API, not just hidden in the app:
@@ -30,8 +32,10 @@ Enforced in the API, not just hidden in the app:
   REST handler hasn't decided.
 - REST (review, reports, schedule, judge links, exports, imports, judge
   notifications, workbook setup) runs the same check in each handler.
+- Ids must be in their canonical form (other spellings the database would
+  accept are refused rather than skipped).
 - Judge notifications go only to the judge's own stored email and phone, with
-  a link made by the server.
+  a link made by the server (on `APP_URL` when set).
 
 ## Several admins
 
@@ -85,8 +89,14 @@ what people expect.
 
 ## On deploy
 
-Migration `20261005140000_event_control` adds the retention fields and, because
-events are now private, puts every existing staff user who had no event
-assignments (and so could reach every event) on every current event in the
-role they hold today. Users already assigned to some events keep exactly those.
-Nobody loses access on deploy; tighten it afterwards in Event Control.
+Migration `20261005140000_event_control` adds the retention fields and keeps
+everyone's access exactly as it is today:
+
+- Existing assignments take the person's platform role (until now the role on
+  an assignment was never used; the platform role decided).
+- Every staff user with no assignments (who could reach every event) is put on
+  every current event in their platform role.
+- Users already assigned to some events keep exactly those.
+
+Afterwards, tighten it in Event Control. An event can end up with no admin (if
+none of its people is a platform admin); a super admin can add one.

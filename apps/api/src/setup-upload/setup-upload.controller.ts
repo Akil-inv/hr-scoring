@@ -20,8 +20,8 @@ export class SetupUploadController {
   constructor(private service: SetupUploadService, private access: EventAccessService) {}
 
   /** A new event: a platform admin. An existing one: an admin of that event. */
-  private async check(req: any, eventId: string | undefined) {
-    if (eventId) await this.access.assert(req.user, eventId, ['ADMIN']);
+  private async check(req: any, eventId: string | undefined, write = false) {
+    if (eventId) await this.access.assert(req.user, eventId, ['ADMIN'], [], { write });
     else SetupUploadService.assertMaySetUp(req.user);
   }
 
@@ -35,7 +35,7 @@ export class SetupUploadController {
   @Post('commit')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_BYTES } }))
   async commit(@UploadedFile() file: Express.Multer.File, @Body('eventId') eventId: string | undefined, @Req() req: any) {
-    await this.check(req, eventId || undefined);
+    await this.check(req, eventId || undefined, true);
     return this.service.commit(SetupUploadService.assertFile(file), req.user.sub, eventId || undefined);
   }
 }
