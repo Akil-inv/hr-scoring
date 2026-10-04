@@ -366,6 +366,35 @@ export class ReviewService {
     return { fileName: r.fileName, pdf: Buffer.from(r.pdf) };
   }
 
+  /**
+   * A preview of the report with HR's decision and comments as they stand on
+   * screen. Not stored and marked as a draft; works before the panel has all
+   * submitted, so HR can see the report taking shape.
+   */
+  async previewReport(
+    eventId: string, sessionId: string,
+    input: { decision?: string | null; feedback?: string | null }, userId: string,
+  ): Promise<{ fileName: string; pdf: Buffer }> {
+    const data = await this.load(eventId);
+    const record = data.records.find((r) => r.sessionId === sessionId);
+    if (!record) throw new NotFoundException('That candidate is not in this event.');
+    if (record.decision?.status === 'SUBMITTED') return this.report(eventId, sessionId);
+    const decision = input.decision ? String(input.decision).toUpperCase() : null;
+    const me = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+    const draft: CandidateRecord = {
+      ...record,
+      decision: {
+        status: 'DRAFT',
+        decision: (DECISIONS as readonly string[]).includes(decision ?? '') ? (decision as Decision) : null,
+        feedback: input.feedback?.trim() || null,
+        decidedBy: me?.name || me?.email || null,
+        decidedAt: null,
+      },
+    };
+    const pdf = await buildReportPdf(data, draft, new Date(), { preview: true });
+    return { fileName: reportFileName(record).replace('-assessment.pdf', '-preview.pdf'), pdf };
+  }
+
   /** Every decided candidate's report for one day, in interview order, as a zip. */
   async dayReports(eventId: string, date: string): Promise<{ fileName: string; zip: Buffer; count: number }> {
     const data = await this.load(eventId, date);

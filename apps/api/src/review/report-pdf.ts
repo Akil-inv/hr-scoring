@@ -105,7 +105,13 @@ const avgFmt = (n: number | null | undefined) =>
 
 type Doc = PDFKit.PDFDocument;
 
-export async function buildReportPdf(data: ReviewData, r: CandidateRecord, printedAt = new Date()): Promise<Buffer> {
+/**
+ * preview: HR's draft, not yet submitted. Shows the decision and comments as
+ * they stand, marked as a draft on every page, and is never stored.
+ */
+export async function buildReportPdf(
+  data: ReviewData, r: CandidateRecord, printedAt = new Date(), opts: { preview?: boolean } = {},
+): Promise<Buffer> {
   const doc: Doc = new PDFDocument({
     size: 'A4',
     margins: { top: 40, bottom: 56, left: 42, right: 42 },
@@ -137,7 +143,9 @@ export async function buildReportPdf(data: ReviewData, r: CandidateRecord, print
   const bottom = () => doc.page.height - doc.page.margins.bottom;
   const ensure = (h: number) => { if (doc.y + h > bottom()) doc.addPage(); };
   const rating = data.scale === 'RATING';
-  const decided = r.decision?.status === 'SUBMITTED' ? r.decision.decision : null;
+  const preview = !!opts.preview;
+  // In a preview the draft decision is shown as it stands.
+  const decided = r.decision?.status === 'SUBMITTED' || preview ? r.decision?.decision ?? null : null;
   const tone = scoreTone(r.average, data.scoreMax);
   const scored = r.judges.filter((j) => j.submitted);
   const tz = data.event.timezone;
@@ -179,11 +187,11 @@ export async function buildReportPdf(data: ReviewData, r: CandidateRecord, print
     doc.font('mono').fontSize(7.8).fillColor(MUTED)
       .text(`${data.supportQuestion} · ${r.support.yes} of ${scored.length} Yes`, rx, doc.y + 2, { width: rightW, align: 'right' });
   }
-  const badge = decided ? 'Final' : 'Not final';
+  const badge = preview ? 'Draft preview' : decided ? 'Final' : 'Not final';
   doc.font('monoMedium').fontSize(6.8);
   const bw = doc.widthOfString(badge.toUpperCase(), { characterSpacing: 1.2 }) + 12;
   const by = doc.y + 5;
-  const bColour = decided ? DECISION_COLOUR[decided] : '#6d28d9';
+  const bColour = preview ? '#6d28d9' : decided ? DECISION_COLOUR[decided] : '#6d28d9';
   doc.rect(L + W - bw, by, bw, 13).lineWidth(0.7).strokeColor(bColour).stroke();
   doc.fillColor(bColour).text(badge.toUpperCase(), L + W - bw, by + 3.5, { width: bw, align: 'center', characterSpacing: 1.2, lineBreak: false });
   y = Math.max(heroLeftEnd, by + 13) + 12;
@@ -203,7 +211,11 @@ export async function buildReportPdf(data: ReviewData, r: CandidateRecord, print
   const fbEnd = doc.y;
   doc.moveTo(L + 1, qTop + 14).lineTo(L + 1, fbEnd).lineWidth(2).strokeColor(decided ? DECISION_COLOUR[decided] : RULE).stroke();
   let leftEnd = fbEnd;
-  if (decided) {
+  if (preview) {
+    doc.font('mono').fontSize(7.5).fillColor('#6d28d9')
+      .text('Draft · not yet submitted', L + 10, fbEnd + 6, { width: leftW - 10 });
+    leftEnd = doc.y;
+  } else if (decided) {
     doc.font('mono').fontSize(7.5).fillColor(MUTED)
       .text(`Decided by ${r.decision?.decidedBy ?? 'unknown'} · ${stamp(r.decision?.decidedAt ?? null, tz)}`, L + 10, fbEnd + 6, { width: leftW - 10 });
     leftEnd = doc.y;
@@ -264,9 +276,20 @@ export async function buildReportPdf(data: ReviewData, r: CandidateRecord, print
     const saved = doc.page.margins.bottom;
     doc.page.margins.bottom = 0;
     const fy = doc.page.height - 36;
+    if (preview) {
+      // Faint, diagonal, on every page: a preview must never pass for the record.
+      doc.save();
+      doc.rotate(-35, { origin: [doc.page.width / 2, doc.page.height / 2] });
+      doc.font('serifBold').fontSize(88).fillColor('#6d28d9').fillOpacity(0.06)
+        .text('PREVIEW', 0, doc.page.height / 2 - 50, { width: doc.page.width, align: 'center', lineBreak: false });
+      doc.restore();
+      doc.fillOpacity(1);
+    }
     doc.moveTo(L, fy - 7).lineTo(L + W, fy - 7).lineWidth(0.8).strokeColor(INK).stroke();
-    doc.font('mono').fontSize(6.5).fillColor(MUTED).text(
-      `${reportRef(r)} · CONFIDENTIAL — FOR HIRING DECISIONS ONLY · ${stamp(printedAt, tz).toUpperCase()} · PAGE ${i - range.start + 1} OF ${range.count}`,
+    doc.font('mono').fontSize(6.5).fillColor(preview ? '#6d28d9' : MUTED).text(
+      preview
+        ? `DRAFT PREVIEW — NOT THE RECORD · ${reportRef(r)} · ${stamp(printedAt, tz).toUpperCase()} · PAGE ${i - range.start + 1} OF ${range.count}`
+        : `${reportRef(r)} · CONFIDENTIAL — FOR HIRING DECISIONS ONLY · ${stamp(printedAt, tz).toUpperCase()} · PAGE ${i - range.start + 1} OF ${range.count}`,
       L, fy, { width: W, align: 'center', characterSpacing: 0.8, lineBreak: false },
     );
     doc.page.margins.bottom = saved;

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { useEventId } from '@/lib/event-store';
 import { dayLabel, messageOf } from '@/components/upload-common';
-import { CandidateRecord, DECISIONS, ReviewData, downloadDayReports, downloadReport, downloadResults, finalDecision, fmtScore, scoreTone } from '@/lib/review';
+import { CandidateRecord, DECISIONS, ReviewData, downloadDayReports, downloadResults, fetchReport, finalDecision, fmtScore, scoreTone } from '@/lib/review';
+import PdfViewer from '@/components/pdf-viewer';
 
 /**
  * Results: candidates grouped by the HR decision, best consolidated score
@@ -19,6 +20,7 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState<string | 'ALL'>('ALL');
   const [busy, setBusy] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<CandidateRecord | null>(null);
 
   const load = useCallback(async () => {
     if (!eventId) return;
@@ -131,9 +133,9 @@ export default function ResultsPage() {
                     </td>
                     <td className="px-4 py-2 text-right">
                       {finalDecision(r) && (
-                        <button type="button" disabled={!!busy} onClick={() => run(r.sessionId, () => downloadReport(eventId, token, r.sessionId))}
-                          className="text-xs text-violet-300 hover:text-white whitespace-nowrap disabled:opacity-40">
-                          {busy === r.sessionId ? 'Preparing…' : 'PDF ↓'}
+                        <button type="button" onClick={() => setViewing(r)}
+                          className="text-xs text-violet-300 hover:text-white whitespace-nowrap">
+                          View PDF
                         </button>
                       )}
                     </td>
@@ -144,6 +146,14 @@ export default function ResultsPage() {
           </section>
         ))}
       </div>
+      {viewing && (
+        <PdfViewer
+          title={`${viewing.name} — assessment report`}
+          subtitle={`${dayLabel(viewing.date)} · ${viewing.start}`}
+          load={() => fetchReport(eventId, token, viewing.sessionId)}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }

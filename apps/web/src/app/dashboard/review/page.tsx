@@ -5,9 +5,10 @@ import { useAuthStore } from '@/lib/auth-store';
 import { useEventId } from '@/lib/event-store';
 import { dayLabel, messageOf } from '@/components/upload-common';
 import {
-  CandidateRecord, DECISIONS, Decision, JudgeCard, ReviewData, decisionMeta, downloadReport, finalDecision, fmtScore, scoreTone, stateLabel,
+  CandidateRecord, DECISIONS, Decision, JudgeCard, ReviewData, decisionMeta, fetchReport, fetchReportPreview, finalDecision, fmtScore, scoreTone, stateLabel,
 } from '@/lib/review';
 import ScoreRadar from '@/components/score-radar';
+import PdfViewer from '@/components/pdf-viewer';
 
 /**
  * Review: one candidate at a time, after their interview. The panel's
@@ -119,7 +120,7 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
   const [decision, setDecision] = useState<Decision | null>(r.decision?.decision ?? null);
   const [feedback, setFeedback] = useState(r.decision?.feedback ?? '');
   const [saving, setSaving] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [viewing, setViewing] = useState<null | 'report' | 'preview'>(null);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const [tried, setTried] = useState(false);
 
@@ -143,11 +144,6 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
     onSaved();
   };
 
-  const report = async () => {
-    setDownloading(true);
-    try { await downloadReport(eventId, token, r.sessionId); } catch (e: any) { setMsg({ tone: 'error', text: e.message }); }
-    setDownloading(false);
-  };
 
   const scored = r.judges.filter((j) => j.submitted);
   const tone = scoreTone(r.average, data.scoreMax);
@@ -246,12 +242,16 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
             <p className="text-xs text-slate-400">{closed ? 'Final. This record is closed.' : 'Final once submitted. Submitting closes the record and makes the PDF report.'}</p>
           </div>
           {closed ? (
-            <button type="button" onClick={report} disabled={downloading}
-              className="shrink-0 rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-200 hover:border-accent/60 disabled:opacity-40">
-              {downloading ? 'Preparing…' : 'Download report (PDF)'}
+            <button type="button" onClick={() => setViewing('report')}
+              className="shrink-0 rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-200 hover:border-accent/60">
+              View report (PDF)
             </button>
           ) : (
-            <span className="shrink-0 text-xs text-slate-500">Report available once submitted</span>
+            <button type="button" onClick={() => setViewing('preview')}
+              title="See the report with your decision and comments as they are now. Nothing is saved."
+              className="shrink-0 rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-200 hover:border-accent/60">
+              Preview report
+            </button>
           )}
         </div>
         {closed ? (
@@ -288,6 +288,17 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
         )}
         {closed && msg && <p className={`mt-2 text-sm ${msg.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</p>}
       </div>
+
+      {viewing && (
+        <PdfViewer
+          title={viewing === 'report' ? `${r.name} — assessment report` : `${r.name} — preview`}
+          subtitle={viewing === 'report' ? 'The stored report, as decided' : 'Draft: your decision and comments as they are now. Nothing is saved.'}
+          load={() => viewing === 'report'
+            ? fetchReport(eventId, token, r.sessionId)
+            : fetchReportPreview(eventId, token, r.sessionId, { decision, feedback })}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }

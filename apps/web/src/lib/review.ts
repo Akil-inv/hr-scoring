@@ -106,6 +106,30 @@ async function download(url: string, token: string | null, fallback: string) {
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
+async function fetchPdf(url: string, token: string | null, init: RequestInit = {}): Promise<{ blob: Blob; name: string }> {
+  const res = await fetch(url, { ...init, headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.message === 'string' ? body.message : `Could not load the report (${res.status}).`);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'report.pdf';
+  return { blob: await res.blob(), name };
+}
+
+/** The stored report, to show in the app. */
+export function fetchReport(eventId: string, token: string | null, sessionId: string) {
+  return fetchPdf(`/api/review/${eventId}/${sessionId}/report?view=1`, token);
+}
+
+/** A draft preview with the decision and comments as they stand (not stored). */
+export function fetchReportPreview(
+  eventId: string, token: string | null, sessionId: string, draft: { decision: string | null; feedback: string },
+) {
+  return fetchPdf(`/api/review/${eventId}/${sessionId}/report-preview`, token, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft),
+  });
+}
+
 /** The results workbook for one day, or all days. */
 export function downloadResults(eventId: string, token: string | null, date?: string) {
   return download(`/api/review/${eventId}/export${date ? `?date=${date}` : ''}`, token, 'results.xlsx');
