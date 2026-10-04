@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
+import { DocumentPasswordNotice } from '@/components/document-password';
 import { useEventId } from '@/lib/event-store';
 import { dayLabel, messageOf } from '@/components/upload-common';
 import {
@@ -46,6 +47,7 @@ export default function ReviewPage() {
 
   return (
     <div>
+      <DocumentPasswordNotice />
       <div className="mb-5">
         <h1 className="text-xl font-bold text-white">Review</h1>
         <p className="text-sm text-slate-400 mt-0.5">

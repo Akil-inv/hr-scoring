@@ -1,4 +1,7 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import * as XLSX from 'xlsx';
+import * as Papa from 'papaparse';
+import { DocumentPasswordService } from '../documents/document-password.service';
 import { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -13,11 +16,11 @@ const COMPLETED_STATUSES: ScorecardStatus[] = [
 @Controller('api/export')
 @UseGuards(JwtAuthGuard)
 export class ExportController {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private documents: DocumentPasswordService) {}
 
   // ─── 1. SCHEDULE EXPORT ───
   @Get('schedule')
-  async exportSchedule(@Query('eventId') eventId: string, @Res() res: Response) {
+  async exportSchedule(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -47,12 +50,12 @@ export class ExportController {
       return [date, start, end, this.csvCell(s.room?.name || ''), this.csvCell(s.team.name), this.csvCell(s.team.projectName), this.csvCell(s.team.track?.name || ''), this.csvCell(s.team.organisation || ''), ...judgeFields, s.stage].join(',');
     });
 
-    this.sendCsv(res, event.name, 'schedule', header, rows);
+    await this.sendXlsx(req, res, event.name, 'schedule', header, rows);
   }
 
   // ─── 2. RAW SCORES ───
   @Get('scores-raw')
-  async exportScoresRaw(@Query('eventId') eventId: string, @Res() res: Response) {
+  async exportScoresRaw(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -87,12 +90,12 @@ export class ExportController {
       }
     }
 
-    this.sendCsv(res, event.name, 'scores_raw', header, rows);
+    await this.sendXlsx(req, res, event.name, 'scores_raw', header, rows);
   }
 
   // ─── 3. SCORE SUMMARY ───
   @Get('scores')
-  async exportScores(@Query('eventId') eventId: string, @Res() res: Response) {
+  async exportScores(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -137,12 +140,12 @@ export class ExportController {
       ].join(',');
     });
 
-    this.sendCsv(res, event.name, 'scores_summary', header, rows);
+    await this.sendXlsx(req, res, event.name, 'scores_summary', header, rows);
   }
 
   // ─── 4. TEAM AGGREGATES ───
   @Get('team-aggregates')
-  async exportTeamAggregates(@Query('eventId') eventId: string, @Res() res: Response) {
+  async exportTeamAggregates(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -201,12 +204,12 @@ export class ExportController {
       ].join(',');
     });
 
-    this.sendCsv(res, event.name, 'team_aggregates', header, rows);
+    await this.sendXlsx(req, res, event.name, 'team_aggregates', header, rows);
   }
 
   // ─── 5. JUDGE ANALYTICS ───
   @Get('judge-analytics')
-  async exportJudgeAnalytics(@Query('eventId') eventId: string, @Res() res: Response) {
+  async exportJudgeAnalytics(@Query('eventId') eventId: string, @Req() req: any, @Res() res: Response) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -264,12 +267,12 @@ export class ExportController {
       ].join(',');
     });
 
-    this.sendCsv(res, event.name, 'judge_analytics', header, rows);
+    await this.sendXlsx(req, res, event.name, 'judge_analytics', header, rows);
   }
 
   // ─── 6. INDICATIVE RANKINGS ───
   @Get('rankings')
-  async exportRankings(@Query('eventId') eventId: string, @Query('trackId') trackId: string, @Res() res: Response) {
+  async exportRankings(@Query('eventId') eventId: string, @Query('trackId') trackId: string, @Req() req: any, @Res() res: Response) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return res.status(404).json({ message: 'Event not found' });
 
@@ -317,7 +320,29 @@ export class ExportController {
     });
 
     const scope = trackId ? 'track' : 'overall';
-    this.sendCsv(res, event.name, `rankings_${scope}`, header, rows);
+    await this.sendXlsx(req, res, event.name, `rankings_${scope}`, header, rows);
+  }
+
+  // ─── 7. A TABLE THE PAGE ALREADY HAS ───
+  /**
+   * The Schedule page exports what is on screen, drafts included, which the
+   * server-side exports don't cover. It sends the table here so the file can
+   * be locked with the document password like every other download.
+   */
+  @Post('table')
+  async exportTable(
+    @Req() req: any, @Res() res: Response,
+    @Body() body: { name?: string; eventId?: string; header?: unknown; rows?: unknown },
+  ) {
+    const header = body?.header;
+    const rows = body?.rows;
+    if (!Array.isArray(header) || header.length === 0 || header.length > 100 || !Array.isArray(rows) || rows.length > 20000) {
+      throw new BadRequestException('Send a header (up to 100 columns) and up to 20,000 rows.');
+    }
+    const text = (v: unknown) => (v === null || v === undefined ? '' : String(v).slice(0, 5000));
+    const lines = rows.map((r) => (Array.isArray(r) ? r : []).map((c) => this.csvCell(text(c))).join(','));
+    const name = text(body?.name).replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'export';
+    await this.sendXlsx(req, res, name, 'table', header.map(text), lines, typeof body?.eventId === 'string' ? body.eventId : undefined);
   }
 
   // ─── Helper ───
@@ -344,11 +369,34 @@ export class ExportController {
     return '"' + v.replace(/"/g, '""') + '"';
   }
 
-  private sendCsv(res: Response, eventName: string, type: string, header: string[], rows: string[]) {
-    const csv = [header.join(','), ...rows].join('\n');
+  /**
+   * The rows (built as CSV lines above) as an Excel sheet, locked with the
+   * downloader's document password. CSV can't carry a password, and these hold
+   * candidate names and scores.
+   *
+   * Cells are text or numbers, never formulas, so the leading tab csvCell adds
+   * against formula injection is removed again here.
+   */
+  private async sendXlsx(req: any, res: Response, eventName: string, type: string, header: string[], rows: string[], eventIdOverride?: string) {
+    const parsed = Papa.parse<string[]>(rows.join('\n'), { delimiter: ',', skipEmptyLines: false }).data;
+    // Numbers become numbers (so Excel can sum them), keeping their decimals ("4.0" shows as 4.0).
+    // Long digit strings (IDs, phone numbers) stay text: a number would round them.
+    const cell = (v: string): XLSX.CellObject => {
+      const text = String(v ?? '').replace(/^\t/, '');
+      const m = /^-?\d{1,12}(\.(\d{1,6}))?$/.exec(text);
+      if (!m || /^-?0\d/.test(text)) return { t: 's', v: text };
+      return { t: 'n', v: Number(text), z: m[2] ? `0.${'0'.repeat(m[2].length)}` : '0' };
+    };
+    const sheet = XLSX.utils.aoa_to_sheet([header, ...parsed.filter((r) => r.length > 1 || r[0] !== '').map((r) => r.map(cell))]);
+    sheet['!cols'] = header.map((h) => ({ wch: Math.min(Math.max(h.length + 2, 12), 40) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet, type.slice(0, 31));
+    const xlsx = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    const eventId = eventIdOverride ?? (typeof req.query?.eventId === 'string' ? req.query.eventId : undefined);
+    const locked = await this.documents.xlsx(req.user.sub, xlsx, 'data-export', eventId, { export: type });
     const safeName = eventName.replace(/[^a-zA-Z0-9]/g, '_');
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${type}_${safeName}_${new Date().toISOString().slice(0, 10)}.csv"`);
-    res.send('\uFEFF' + csv);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${type}_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.send(locked);
   }
 }

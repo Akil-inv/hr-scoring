@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
+import { DocumentPasswordNotice } from '@/components/document-password';
 import { useEventId } from '@/lib/event-store';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '';
@@ -307,15 +308,18 @@ export default function RankingsPage() {
   const downloadExport = async (endpoint: string, fallbackName: string) => {
     if (!token || !eventId) return;
     try {
-      const url = `${API}/api/export/${endpoint}?eventId=${eventId}`;
+      const url = `${API}/api/export/${endpoint}${endpoint.includes('?') ? '&' : '?'}eventId=${eventId}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error('Export failed');
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(typeof body?.message === 'string' ? body.message : `${res.status}`);
+      }
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
       const disposition = res.headers.get('content-disposition');
-      a.download = disposition?.split('filename=')[1]?.replace(/"/g, '') || `${fallbackName}.csv`;
+      a.download = disposition?.split('filename=')[1]?.replace(/"/g, '') || `${fallbackName}.xlsx`;
       a.click();
       URL.revokeObjectURL(blobUrl);
     } catch (e: any) {
@@ -336,37 +340,9 @@ export default function RankingsPage() {
     }
   };
 
-  const exportRankingsCSV = () => {
-    if (!data?.rankings?.length) return;
-    const rows = data.rankings;
-    const crits = rows[0]?.criterionAverages || [];
-    const maxTotal = crits.reduce((s: number, c: any) => s + c.maxScore, 0);
-    const header = [
-      'Rank', 'Team', 'Project', 'Track', 'Judges', 'Judge Names',
-      ...crits.map((c: any) => `${c.criterionName} (/${c.maxScore})`),
-      'Total Score', 'Max Possible', 'Score %', 'Note',
-    ];
-    const csv = [
-      header.join(','),
-      ...rows.map((r: any) =>
-        [
-          r.rankPosition, `"${r.teamName}"`, `"${r.projectName}"`, `"${r.trackName || ''}"`,
-          r.judgeCount, `"${r.judgeNames || ''}"`,
-          ...r.criterionAverages.map((c: any) => c.average.toFixed(1)),
-          r.aggregatedScore.toFixed(1), maxTotal,
-          maxTotal > 0 ? ((r.aggregatedScore / maxTotal) * 100).toFixed(1) : '',
-          '"Indicative - calibration done offline"',
-        ].join(',')
-      ),
-    ].join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `rankings_${selectedTrack ? 'track' : 'overall'}_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // Built on the server so it can be locked with the document password (a CSV made here couldn't be).
+  const exportRankings = () =>
+    downloadExport(`rankings${selectedTrack ? `?trackId=${selectedTrack}` : ''}`, `rankings_${selectedTrack ? 'track' : 'overall'}`);
 
   const rankings = data?.rankings || [];
   const status = data?.status;
@@ -374,6 +350,7 @@ export default function RankingsPage() {
 
   return (
     <div style={{ color: '#e2e8f0' }}>
+      <DocumentPasswordNotice />
       {/* Methodology modal */}
       {showMethodology && <MethodologyModal onClose={() => setShowMethodology(false)} />}
 
@@ -453,7 +430,7 @@ export default function RankingsPage() {
                   background: 'rgba(52,211,153,0.15)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', cursor: 'pointer' }}>
                 Export All Data
               </button>
-              <button type="button" onClick={exportRankingsCSV}
+              <button type="button" onClick={exportRankings}
                 style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
                   background: 'rgba(100,116,139,0.15)', color: '#94a3b8', border: '1px solid rgba(100,116,139,0.3)', cursor: 'pointer' }}>
                 Export Rankings

@@ -30,6 +30,7 @@ import { OperationsModule } from './operations/operations.module';
 import { SetupUploadModule } from './setup-upload/setup-upload.module';
 import { InterviewScheduleModule } from './interview-schedule/interview-schedule.module';
 import { ReviewModule } from './review/review.module';
+import { DocumentsModule } from './documents/documents.module';
 import { HealthResolver } from './health.resolver';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -154,6 +155,7 @@ import { GqlThrottlerGuard } from './common/gql-throttler.guard';
     authKitModule,
     AuthModule,
     AuditModule,
+    DocumentsModule,
     EventsModule,
     TracksModule,
     RoomsModule,

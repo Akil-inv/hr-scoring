@@ -105,6 +105,7 @@ jobs:
           python-version: '3.11'
       - name: Install the product (so the tests can run)
         run: |
+          sudo apt-get install -y -qq qpdf >/dev/null   # the API locks PDF downloads with it
           (cd apps/api && npm ci --no-audit --no-fund && npx prisma generate)
           (cd apps/web && npm ci --no-audit --no-fund)
           python -m pip install -q -r apps/scheduler/requirements.txt -r apps/scheduler/requirements-dev.txt pip-audit
@@ -147,6 +148,7 @@ jobs:
           python-version: '3.11'
       - name: Install the product (so the tests can run)
         run: |
+          sudo apt-get install -y -qq qpdf >/dev/null   # the API locks PDF downloads with it
           (cd apps/api && npm ci --no-audit --no-fund && npx prisma generate)
           (cd apps/web && npm ci --no-audit --no-fund)
           python -m pip install -q -r apps/scheduler/requirements.txt -r apps/scheduler/requirements-dev.txt

@@ -29,6 +29,10 @@ export type ModelSpec = {
 const t = (column: string): { column: string; kind: Kind } => ({ column, kind: 'text' });
 
 export const ENCRYPTED: Record<string, ModelSpec> = {
+  User: {
+    table: 'users',
+    fields: { documentPassword: t('document_password') },
+  },
   Team: {
     table: 'teams',
     fields: {

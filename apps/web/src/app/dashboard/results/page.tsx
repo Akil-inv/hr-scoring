@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
+import { DocumentPasswordNotice, ActionError } from '@/components/document-password';
 import { useEventId } from '@/lib/event-store';
 import { dayLabel, messageOf } from '@/components/upload-common';
 import { CandidateRecord, DECISIONS, ReviewData, downloadDayReports, downloadResults, fetchReport, finalDecision, fmtScore, reviewAction, scoreTone } from '@/lib/review';
@@ -20,6 +21,8 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState<string | 'ALL'>('ALL');
   const [busy, setBusy] = useState<string | null>(null);
+  // A failed action (download, close) is shown above the page, not instead of it.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<CandidateRecord | null>(null);
 
   const load = useCallback(async () => {
@@ -41,12 +44,14 @@ export default function ResultsPage() {
   const download = async (which?: string) => {
     if (!eventId) return;
     setBusy(which ?? 'ALL');
-    try { await downloadResults(eventId, token, which); } catch (e: any) { setError(e.message); }
+    setActionError(null);
+    try { await downloadResults(eventId, token, which); } catch (e: any) { setActionError(e.message); }
     setBusy(null);
   };
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
-    try { await fn(); } catch (e: any) { setError(e.message); }
+    setActionError(null);
+    try { await fn(); } catch (e: any) { setActionError(e.message); }
     setBusy(null);
   };
 
@@ -62,6 +67,8 @@ export default function ResultsPage() {
 
   return (
     <div>
+      <DocumentPasswordNotice />
+      <ActionError message={actionError} onClose={() => setActionError(null)} />
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
           <h1 className="text-xl font-bold text-white">Results</h1>

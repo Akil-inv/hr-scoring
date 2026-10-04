@@ -618,17 +618,24 @@ export class ReviewService {
   }
 
   /** Every decided candidate's report for one day, in interview order, as a zip. */
-  async dayReports(eventId: string, date: string): Promise<{ fileName: string; zip: Buffer; count: number }> {
+  async dayReports(
+    eventId: string, date: string,
+    // Required: no caller may get the day's reports unlocked by leaving it out.
+    lock: (files: { name: string; pdf: Buffer }[]) => Promise<{ name: string; pdf: Buffer }[]>,
+  ): Promise<{ fileName: string; zip: Buffer; count: number }> {
     const data = await this.load(eventId, date);
     const decided = data.records
       .filter((r) => r.decision?.status === 'SUBMITTED' && r.decision.decision !== ABSENT)
       .sort((a, b) => a.start.localeCompare(b.start));
     if (decided.length === 0) throw new BadRequestException('No candidates on this day have a final HR decision yet.');
-    const files: Record<string, Uint8Array> = {};
+    const list: { name: string; pdf: Buffer }[] = [];
     for (const r of decided) {
       const rep = await this.storeReport(eventId, r.sessionId);
-      files[`${r.start.replace(':', '')}-${rep.fileName}`] = new Uint8Array(rep.pdf);
+      list.push({ name: `${r.start.replace(':', '')}-${rep.fileName}`, pdf: rep.pdf });
     }
+    // Each PDF is locked (with the downloader's document password) before zipping.
+    const files: Record<string, Uint8Array> = {};
+    for (const f of await lock(list)) files[f.name] = new Uint8Array(f.pdf);
     const base = data.event.name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'reports';
     return { fileName: `${base}-${date}-reports.zip`, zip: Buffer.from(zipSync(files, { level: 0 })), count: decided.length };
   }
