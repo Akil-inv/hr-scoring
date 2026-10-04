@@ -155,9 +155,58 @@ nohup ./deploy.sh > deploy.log 2>&1 &
 tail -f deploy.log
 ```
 
-`deploy.sh` backs up the database, pulls the branch that is checked out, builds
-one service at a time, applies migrations and restarts only this stack. To
-deploy a different branch: `DEPLOY_BRANCH=main ./deploy.sh`.
+`deploy.sh` backs up the database, pulls the branch that is checked out, keeps
+the running images as the rollback point, builds one service at a time,
+applies migrations, restarts only this stack, and then checks it: API,
+database, scheduler, sign-in page and GraphQL. To deploy a different branch:
+`DEPLOY_BRANCH=main ./deploy.sh`.
+
+## Rolling back
+
+**Automatic, when a deploy's check fails.** The previous release is put back
+straight away: its images (kept on the server, so nothing is built or
+downloaded), its code, and, if the release changed the database, the backup
+taken at the start of the deploy. The database as it was is saved to
+`../backups/` first. An alert is sent, and `deploy.sh` exits with code 2.
+
+**By hand, when someone finds something broken later:**
+
+```bash
+./deploy.sh --status      # what is running, and what a rollback would put back
+./deploy.sh --rollback    # asks you to type ROLLBACK
+```
+
+If that release changed the database, `--rollback` stops and explains. Run
+`./deploy.sh --rollback --with-database` to also restore the backup taken
+just before the release. Anything saved since then is removed from the app,
+although a copy of the database is kept in `../backups/` first. Run rollbacks
+in the foreground, not with `nohup`: they ask before doing anything.
+
+Only one step back is kept: the release before the current one.
+
+**After any rollback, the next deploy is refused** while the branch still
+contains the release that was rolled back. Revert it in git first. For a
+patch-kit upgrade, use GitHub → Actions → patch-kit → Run workflow →
+`roll-back-last-upgrade`, review the pull request and merge it, then deploy.
+If later commits fix the problem instead, deploy with `--allow-blocked`.
+
+**Alerts** go to `../releases/alerts.log`, and to email when `ALERT_TOPIC_ARN`
+is set in `.env` (see below). The history of deploys and rollbacks is in
+`../releases/releases.log`.
+
+### Alerts by email (one time)
+
+Use the SNS topic from the encryption setup (`hr-scoring-key-alerts`, already
+emailing you). In CloudShell, let the server publish to it:
+
+```bash
+aws iam put-role-policy --role-name SSMroleforEC2 --policy-name hr-scoring-deploy-alerts \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sns:Publish",
+  "Resource":"arn:aws:sns:ap-southeast-1:<account>:hr-scoring-key-alerts"}]}'
+```
+
+Then on the server add `ALERT_TOPIC_ARN=arn:aws:sns:ap-southeast-1:<account>:hr-scoring-key-alerts`
+to `.env`. No restart is needed: `deploy.sh` reads it when it runs.
 
 ## Useful commands
 
@@ -171,6 +220,8 @@ All from `/opt/hr-scoring/hr-scoring`:
 | Stop the stack (keeps data) | `docker-compose down` |
 | Start it again | `docker-compose up -d` |
 | Clear all event data, keep logins | `./reset.sh` |
+| What a rollback would put back | `./deploy.sh --status` |
+| Put back the previous release | `./deploy.sh --rollback` |
 
 Never run `docker-compose down -v`: `-v` deletes the database volume.
 

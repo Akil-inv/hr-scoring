@@ -1,7 +1,14 @@
-# patch-kit: every night, find vulnerable / deprecated / end-of-life packages,
-# make the safe upgrades on a branch, run the tests before and after, and open
-# a pull request. Bigger upgrades are listed as plans in the PR. Nothing is
-# merged automatically.
+# patch-kit for HR Scoring.
+#
+# Nothing is upgraded unless a person asks:
+#   - Every night: a report only. No branch, no change. The report is kept in
+#     the open GitHub issue labelled "patch-kit".
+#   - Run workflow → prepare-upgrades: a person asks for the safe upgrades.
+#     They are made on a branch, tested before and after, and offered as a
+#     pull request. A person reviews and merges it, and deploys it.
+#   - Run workflow → roll-back-last-upgrade: a person asks to undo the last
+#     upgrade. The revert is tested and offered as a pull request.
+# The agent itself refuses to upgrade or roll back on a schedule.
 #
 # One-time setting: Settings → Actions → General → Workflow permissions →
 # tick "Allow GitHub Actions to create and approve pull requests".
@@ -9,60 +16,67 @@ name: patch-kit
 
 on:
   schedule:
-    - cron: '43 18 * * *'        # 02:43 Singapore time
+    - cron: '43 18 * * *'        # 02:43 Singapore time: report only
   workflow_dispatch:
-
-permissions:
-  contents: write
-  pull-requests: write
+    inputs:
+      action:
+        description: 'scan = report only. prepare-upgrades = make the safe upgrades on a branch and open a pull request for review. roll-back-last-upgrade = open a pull request that undoes the last upgrade.'
+        type: choice
+        default: scan
+        options:
+          - scan
+          - prepare-upgrades
+          - roll-back-last-upgrade
 
 concurrency:
   group: patchkit
   cancel-in-progress: false
 
 env:
-  # The branch production is deployed from. The PR targets it.
+  # The branch production is deployed from. Pull requests target it.
   PRODUCT_BRANCH: feature/interview-availability
+  AGENT: ./tools/patchkit/akil-inv-patch-kit-agent-0.1.1.tgz
 
 jobs:
-  patchkit:
+  scan:
+    if: github.event_name == 'schedule' || inputs.action == 'scan'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.PRODUCT_BRANCH }}
-          fetch-depth: 0
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install the product (so the tests can run)
+      - name: Install the scanners and the agent
         run: |
-          (cd apps/api && npm ci --no-audit --no-fund && npx prisma generate)
-          (cd apps/web && npm ci --no-audit --no-fund)
-          python -m pip install -q -r apps/scheduler/requirements.txt -r apps/scheduler/requirements-dev.txt pip-audit
-
-      - name: Install the patch-kit agent
-        run: npm i -g --no-audit --no-fund ./tools/patchkit/akil-inv-patch-kit-agent-0.1.0.tgz
-
-      - name: Scan, upgrade, test, open the pull request
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git config user.name "patch-kit"
-          git config user.email "patch-kit@users.noreply.github.com"
-          patchkit fix --pr
-
+          python -m pip install -q pip-audit
+          npm i -g --no-audit --no-fund "$AGENT"
+      - name: Scan (changes nothing)
+        run: patchkit scan
       - name: Report on the run page
         if: always()
         run: '[ -f .patchkit/report.md ] && cat .patchkit/report.md >> "$GITHUB_STEP_SUMMARY" || true'
-
+      - name: Keep the report in the patch-kit issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create patch-kit --color 5319e7 --description "patch-kit report" 2>/dev/null || true
+          {
+            echo "> Updated $(date -u '+%Y-%m-%d %H:%M') UTC from \`$PRODUCT_BRANCH\`. **Nothing has been changed.**"
+            echo "> To have the safe upgrades prepared for review: Actions → patch-kit → Run workflow → \`prepare-upgrades\`."
+            echo
+            head -c 60000 .patchkit/report.md
+          } > issue.md
+          n=$(gh issue list --label patch-kit --state open --json number -q '.[0].number')
+          if [ -n "$n" ]; then gh issue edit "$n" --body-file issue.md; else gh issue create --title "patch-kit: what needs upgrading" --label patch-kit --body-file issue.md; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -70,3 +84,80 @@ jobs:
           path: .patchkit/
           if-no-files-found: ignore
           retention-days: 30
+
+  prepare-upgrades:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'prepare-upgrades'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PRODUCT_BRANCH }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the product (so the tests can run)
+        run: |
+          (cd apps/api && npm ci --no-audit --no-fund && npx prisma generate)
+          (cd apps/web && npm ci --no-audit --no-fund)
+          python -m pip install -q -r apps/scheduler/requirements.txt -r apps/scheduler/requirements-dev.txt pip-audit
+          npm i -g --no-audit --no-fund "$AGENT"
+      - name: Prepare the safe upgrades, test, open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "patch-kit"
+          git config user.email "patch-kit@users.noreply.github.com"
+          patchkit fix --pr
+      - name: Report on the run page
+        if: always()
+        run: '[ -f .patchkit/report.md ] && cat .patchkit/report.md >> "$GITHUB_STEP_SUMMARY" || true'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: patchkit-upgrade-report
+          path: .patchkit/
+          if-no-files-found: ignore
+          retention-days: 90
+
+  roll-back-last-upgrade:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'roll-back-last-upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PRODUCT_BRANCH }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the product (so the tests can run)
+        run: |
+          (cd apps/api && npm ci --no-audit --no-fund && npx prisma generate)
+          (cd apps/web && npm ci --no-audit --no-fund)
+          python -m pip install -q -r apps/scheduler/requirements.txt -r apps/scheduler/requirements-dev.txt
+          npm i -g --no-audit --no-fund "$AGENT"
+      - name: Revert the last upgrade, test, open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "patch-kit"
+          git config user.email "patch-kit@users.noreply.github.com"
+          patchkit rollback --pr
+      - name: Report on the run page
+        if: always()
+        run: '[ -f .patchkit/rollback.md ] && cat .patchkit/rollback.md >> "$GITHUB_STEP_SUMMARY" || true'

@@ -25,5 +25,9 @@ tests:
     run: cd apps/scheduler && python3 -m pytest -q
     timeoutMinutes: 15
 
+# How to put back the previous release; shown in every upgrade pull request.
+deploy:
+  rollback: "on the server, `./deploy.sh --rollback` (a failed deploy check does this automatically). See docs/DEPLOY-HR-SCORING.md."
+
 # Latest versions and advisories of our own modules (auth-kit and others).
 modules: https://raw.githubusercontent.com/Akil-inv/patch-kit/main/registry/modules.json
