@@ -1,0 +1,72 @@
+# patch-kit: every night, find vulnerable / deprecated / end-of-life packages,
+# make the safe upgrades on a branch, run the tests before and after, and open
+# a pull request. Bigger upgrades are listed as plans in the PR. Nothing is
+# merged automatically.
+#
+# One-time setting: Settings → Actions → General → Workflow permissions →
+# tick "Allow GitHub Actions to create and approve pull requests".
+name: patch-kit
+
+on:
+  schedule:
+    - cron: '43 18 * * *'        # 02:43 Singapore time
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: patchkit
+  cancel-in-progress: false
+
+env:
+  # The branch production is deployed from. The PR targets it.
+  PRODUCT_BRANCH: feature/interview-availability
+
+jobs:
+  patchkit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PRODUCT_BRANCH }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the product (so the tests can run)
+        run: |
+          (cd apps/api && npm ci --no-audit --no-fund && npx prisma generate)
+          (cd apps/web && npm ci --no-audit --no-fund)
+          python -m pip install -q -r apps/scheduler/requirements.txt -r apps/scheduler/requirements-dev.txt pip-audit
+
+      - name: Install the patch-kit agent
+        run: npm i -g --no-audit --no-fund ./tools/patchkit/akil-inv-patch-kit-agent-0.1.0.tgz
+
+      - name: Scan, upgrade, test, open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "patch-kit"
+          git config user.email "patch-kit@users.noreply.github.com"
+          patchkit fix --pr
+
+      - name: Report on the run page
+        if: always()
+        run: '[ -f .patchkit/report.md ] && cat .patchkit/report.md >> "$GITHUB_STEP_SUMMARY" || true'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: patchkit-report
+          path: .patchkit/
+          if-no-files-found: ignore
+          retention-days: 30

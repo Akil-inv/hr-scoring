@@ -1,0 +1,29 @@
+# patch-kit: what to check in this product, and how to test an upgrade.
+# The agent reads this file; see https://github.com/Akil-inv/patch-kit
+product: hr-scoring
+owner: Akil-inv
+environment: connected        # or air-gapped (then updates arrive in the signed bundle)
+
+components:
+  - apps/api                  # npm
+  - apps/web                  # npm
+  - apps/scheduler            # pip (requirements.txt)
+
+# Dockerfiles of the components and docker-compose.yml are found automatically.
+
+# Run from the repository root, before and after the upgrades.
+tests:
+  - name: API unit tests
+    run: cd apps/api && npx jest --ci
+    timeoutMinutes: 15
+  - name: API type check
+    run: cd apps/api && npx tsc --noEmit -p tsconfig.json
+  - name: Web production build      # the web app skips type errors at build time, so the build is the gate
+    run: cd apps/web && npx next build
+    timeoutMinutes: 15
+  - name: Scheduler tests
+    run: cd apps/scheduler && python3 -m pytest -q
+    timeoutMinutes: 15
+
+# Latest versions and advisories of our own modules (auth-kit and others).
+modules: https://raw.githubusercontent.com/Akil-inv/patch-kit/main/registry/modules.json

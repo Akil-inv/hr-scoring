@@ -24,3 +24,6 @@ apps/api/fix-*.js
 # SonarQube
 .scannerwork/
 sonar-issues-page-*.json
+
+# patch-kit reports
+.patchkit/
