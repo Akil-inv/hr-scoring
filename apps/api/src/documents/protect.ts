@@ -33,9 +33,12 @@ function scratchRoot(): string {
   return existsSync('/dev/shm') ? '/dev/shm' : tmpdir();
 }
 
-/** Characters qpdf's argument file can't carry, and that no one types into a password. */
+/**
+ * Passwords qpdf can't take: line breaks (its argument file is one argument
+ * per line) and a leading "-" (read as an option in the positional form).
+ */
 export function unsafeForProtection(password: string): boolean {
-  return /[\r\n\0]/.test(password);
+  return /[\r\n\0]/.test(password) || password.startsWith('-');
 }
 
 export async function protectPdf(pdf: Buffer, password: string): Promise<Buffer> {
@@ -47,10 +50,12 @@ export async function protectPdf(pdf: Buffer, password: string): Promise<Buffer>
     const output = join(dir, 'out.pdf');
     const args = join(dir, 'args');
     await writeFile(input, pdf, { mode: 0o600 });
-    const owner = randomBytes(32).toString('base64url');
-    // Named options, so a password starting with "-" is never read as an option.
+    // Hex: never starts with "-", which qpdf would read as an option.
+    const owner = randomBytes(32).toString('hex');
+    // The positional form (--encrypt USER OWNER 256) works on every qpdf in use;
+    // the named password options need qpdf 11.7+, and Debian 12 ships 11.3.
     await writeFile(args, [
-      '--encrypt', `--user-password=${password}`, `--owner-password=${owner}`, '--bits=256',
+      '--encrypt', password, owner, '256',
       '--print=full', '--modify=none', '--extract=n', '--annotate=n', '--form=n', '--assemble=n',
       '--',
       input, output,

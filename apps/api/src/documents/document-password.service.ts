@@ -62,7 +62,7 @@ export class DocumentPasswordService implements OnModuleInit {
     // The same rules as sign-in passwords (length, not the email, not a common one).
     const problem = passwordProblem(password, user?.email ?? '', MIN_LENGTH);
     if (problem) throw new BadRequestException(problem);
-    if (unsafeForProtection(password)) throw new BadRequestException('The document password cannot contain line breaks.');
+    if (unsafeForProtection(password)) throw new BadRequestException('The document password cannot start with "-" or contain line breaks.');
     if (user?.passwordHash && (await verifyPassword(password, user.passwordHash))) {
       throw new BadRequestException('Use a different password from the one you sign in with.');
     }
@@ -75,6 +75,14 @@ export class DocumentPasswordService implements OnModuleInit {
   /** The password to lock this user's download with; a clear refusal if they have none yet. */
   private async passwordFor(userId: string): Promise<string> {
     const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { documentPassword: true } });
+    if (u?.documentPassword && unsafeForProtection(u.documentPassword)) {
+      // Set before this rule existed: ask for a new one rather than failing the download.
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'document_password_unusable',
+        message: 'Your document password starts with "-", which files can\'t be locked with. Set a new one (My account → Document password).',
+      });
+    }
     if (!u?.documentPassword) {
       throw new ConflictException({
         statusCode: 409,

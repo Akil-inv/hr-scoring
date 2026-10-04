@@ -63,13 +63,16 @@ describe('protectPdf', () => {
     expect(shm().length).toBe(before);
   });
 
-  it('works for passwords and owner passwords that start with "-" (100 files in a row)', async () => {
+  it('100 files in a row: the random owner password never trips qpdf', async () => {
     const pdf = await samplePdf();
-    const dash = await protectPdf(pdf, '-starts-with-dash-9');
-    expect(qpdf(['--check', '--password=-starts-with-dash-9'], dash)).toMatch(/No syntax or stream encoding errors/);
-    // A random owner password begins with "-" about 1 time in 64: 100 in a row would have failed before.
     for (let i = 0; i < 100; i++) await protectPdf(pdf, password);
   }, 120_000);
+
+  it('uses the qpdf syntax every version understands (not the 11.7+ named options)', async () => {
+    // Debian 12, the API image's base, ships qpdf 11.3, which rejects --user-password=.
+    const src = require('fs').readFileSync(__dirname + '/protect.ts', 'utf8');
+    expect(src).not.toMatch(/--user-password=|--owner-password=|--bits=/);
+  });
 
   it('never puts the password in an error message', async () => {
     const err = (await protectPdf(Buffer.from('not a pdf at all'), 'secret-in-the-args-77').catch((e) => e)) as Error;
@@ -78,9 +81,10 @@ describe('protectPdf', () => {
     expect(shm().length).toBe(0);
   });
 
-  it('refuses an empty password or one with a line break', async () => {
+  it('refuses an empty password, a line break, or a leading "-"', async () => {
     await expect(protectPdf(await samplePdf(), '')).rejects.toThrow();
     await expect(protectPdf(await samplePdf(), 'two\nlines')).rejects.toThrow();
+    await expect(protectPdf(await samplePdf(), '-starts-with-dash-9')).rejects.toThrow();
   });
 });
 
