@@ -441,11 +441,11 @@ export class ReviewService {
   }
 
   /**
-   * Reopen an interview's scoring: the chosen judges' scorecards go back to
-   * them to change, and if HR had decided, the decision goes back to a draft
-   * at the next revision and the stored report is kept, marked superseded.
-   * With no judges chosen, only HR's decision reopens. Allowed on a closed
-   * day (that one interview only); never on a closed event.
+   * Before HR decides: reopen the chosen judges' scorecards so they can
+   * correct them. After HR decides, the judges' scores are final: only HR's
+   * decision reopens (revise), going back to a draft at the next revision,
+   * with the stored report kept and marked superseded. Never on a closed
+   * event.
    */
   async reopen(
     eventId: string, sessionId: string,
@@ -459,6 +459,11 @@ export class ReviewService {
     if (!reason) throw new BadRequestException('Give a reason for reopening. It is kept on the record.');
 
     const wanted = new Set(input.judgeIds ?? []);
+    if (record.decision?.status === 'SUBMITTED' && wanted.size > 0) {
+      throw new BadRequestException(
+        "HR has made the final decision, so the judges' scores are final. You can revise the decision and comments instead.",
+      );
+    }
     const unknown = [...wanted].filter((id) => !record.judges.some((j) => j.judgeId === id));
     if (unknown.length) throw new BadRequestException('Some of the chosen judges are not on this panel.');
     const cards = await this.prisma.scorecard.findMany({

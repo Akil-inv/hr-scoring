@@ -283,7 +283,7 @@ export class ScoringCoreService {
       where: { teamId: session.teamId }, select: { status: true },
     });
     if (decision?.status === 'SUBMITTED') {
-      return 'HR has made the final decision on this candidate, so scoring is closed. Ask HR to reopen it if it needs changing.';
+      return "HR has made the final decision on this candidate, so the scores are final.";
     }
     if (session.scheduledStart) {
       const date = localDate(session.scheduledStart, eventTimezone(event as any));
@@ -292,7 +292,7 @@ export class ScoringCoreService {
         select: { status: true },
       });
       if (day?.status === 'CLOSED') {
-        return `Scoring for ${date} is closed. Ask HR to reopen this interview if it needs changing.`;
+        return `Scoring for ${date} is closed.`;
       }
     }
     return null;

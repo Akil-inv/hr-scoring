@@ -1,11 +1,10 @@
 import { Prisma } from '@prisma/client';
 
 /**
- * Reopen HR's submitted decision on a team: back to a draft at the next
- * revision, the reason recorded, and the current report kept but marked
- * superseded. Shared by HR's Reopen on the Review page and the coordinator's
- * scorecard reopen, so a changed score can never sit under a stale decision.
- * Does nothing when the team has no submitted decision.
+ * Reopen HR's submitted decision on a team for revision: back to a draft at
+ * the next revision, the reason recorded, and the current report kept but
+ * marked superseded. The judges' scores are not touched. Does nothing when
+ * the team has no submitted decision.
  */
 export async function supersedeDecision(
   tx: Prisma.TransactionClient, teamId: string, reason: string, userId: string,

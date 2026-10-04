@@ -5,7 +5,6 @@ import { AuditAction, ScorecardStatus } from '@prisma/client';
 import { SaveScorecardInput, SubmitScorecardInput } from './scorecards.types';
 import { RankingsService } from '../rankings/rankings.service';
 import { ScoringCoreService } from './scoring-core.service';
-import { supersedeDecision } from '../review/decision-reopen';
 
 @Injectable()
 export class ScorecardsService {
@@ -235,11 +234,14 @@ export class ScorecardsService {
       throw new BadRequestException('This event is closed. Its scores can no longer be changed.');
     }
 
-    // A changed score must never sit under HR's final decision: reopening a
-    // scorecard also reopens a submitted decision (the report is kept,
-    // marked superseded).
+    // Once HR has made the final decision, the judges' scores are final.
+    const decision = await this.prisma.teamDecision.findUnique({ where: { teamId: sc.teamId }, select: { status: true } });
+    if (decision?.status === 'SUBMITTED') {
+      throw new BadRequestException(
+        "HR has made the final decision on this candidate, so the judges' scores are final. HR can revise the decision on the Review page.",
+      );
+    }
     const updated = await this.prisma.$transaction(async (tx) => {
-      await supersedeDecision(tx, sc.teamId, reason || 'Scoring reopened', userId);
       return tx.scorecard.update({
         where: { id: scorecardId },
         data: { status: 'REOPENED', reopenReason: reason, lockedAt: null },

@@ -215,8 +215,8 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
     <div className="space-y-4">
       {r.reopened && !closed && (
         <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-          <span className="font-medium">Reopened</span> {new Date(r.reopened.at).toLocaleString('en-SG', { timeZone: data.event.timezone })}
-          {r.reopened.by ? ` by ${r.reopened.by}` : ''}: {r.reopened.reason}. This is revision {r.revision}; decide again once the panel has resubmitted.
+          <span className="font-medium">Decision reopened for revision</span> {new Date(r.reopened.at).toLocaleString('en-SG', { timeZone: data.event.timezone })}
+          {r.reopened.by ? ` by ${r.reopened.by}` : ''}: {r.reopened.reason}. The panel&apos;s scores are final; submit the revised decision to make revision {r.revision} of the report.
         </div>
       )}
       {/* Summary: who, the average, the support question, and the profile. */}
@@ -315,7 +315,7 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
               {!readOnly && (
                 <button type="button" onClick={() => setReopening((v) => !v)}
                   className="rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-200 hover:border-amber-400/60">
-                  Reopen…
+                  Revise decision…
                 </button>
               )}
             </div>
@@ -404,52 +404,39 @@ function CandidateDetail({ data, r, eventId, token, onSaved }: {
 }
 
 /**
- * Reopen a decided candidate: a reason (kept on the record) and which judges'
- * scoring to reopen. With no judges ticked only HR's decision reopens.
+ * Revise HR's decision on a decided candidate. The judges' scores are final;
+ * only the decision and comments reopen, as the next revision. The current
+ * report is kept, marked superseded. A reason is required and recorded.
  */
 function ReopenForm({ r, eventId, token, onDone, onCancel }: {
   r: CandidateRecord; eventId: string; token: string | null; onDone: () => void; onCancel: () => void;
 }) {
-  const submitted = r.judges.filter((j) => j.submitted);
   const [reason, setReason] = useState('');
-  const [picked, setPicked] = useState<Set<string>>(new Set(submitted.map((j) => j.judgeId)));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const go = async () => {
     if (!reason.trim()) { setErr('Give a reason. It is kept on the record.'); return; }
     setBusy(true); setErr(null);
-    try { await reviewAction(`/api/review/${eventId}/${r.sessionId}/reopen`, token, { reason, judgeIds: [...picked] }); onDone(); }
+    try { await reviewAction(`/api/review/${eventId}/${r.sessionId}/reopen`, token, { reason, judgeIds: [] }); onDone(); }
     catch (e: any) { setErr(e.message); }
     setBusy(false);
   };
   return (
     <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-4">
-      <p className="text-sm font-medium text-white">Reopen {r.name}</p>
+      <p className="text-sm font-medium text-white">Revise the decision on {r.name}</p>
       <p className="mt-0.5 text-xs text-slate-400">
-        The decision goes back to a draft (revision {r.revision + 1}). This report is kept, marked superseded. Ticked judges can change their scoring on their usual link, even on a closed day.
+        The panel&apos;s scores and comments stay final. Your decision and comments go back to a draft as revision {r.revision + 1};
+        this report is kept, marked superseded, and a new one is made when you submit.
       </p>
       <label className="mt-3 block text-xs text-slate-400" htmlFor="reopen-reason">Reason</label>
       <textarea id="reopen-reason" value={reason} onChange={(e) => { setReason(e.target.value); setErr(null); }} rows={2}
-        placeholder="e.g. Panel to re-score after a second interview"
+        placeholder="e.g. Change of decision after the calibration meeting"
         className="mt-1 w-full rounded-lg border border-dark-500 bg-dark-700 px-3 py-2 text-sm text-white outline-none focus:border-accent/60" />
-      <p className="mt-3 text-xs text-slate-400">Reopen scoring for</p>
-      <div className="mt-1 flex flex-wrap gap-2">
-        {submitted.map((j) => {
-          const on = picked.has(j.judgeId);
-          return (
-            <label key={j.judgeId} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${on ? 'border-amber-400/50 text-white' : 'border-dark-500 text-slate-400'}`}>
-              <input type="checkbox" checked={on} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(j.judgeId)) n.delete(j.judgeId); else n.add(j.judgeId); return n; })} />
-              {j.name}
-            </label>
-          );
-        })}
-      </div>
-      {picked.size === 0 && <p className="mt-1 text-xs text-slate-400">No judges ticked: only HR&apos;s decision reopens; the scores stay as they are.</p>}
       {err && <p className="mt-2 text-sm text-red-300">{err}</p>}
       <div className="mt-3 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="rounded-lg border border-dark-500 px-3 py-2 text-sm text-slate-300">Cancel</button>
         <button type="button" onClick={go} disabled={busy} className="rounded-lg bg-amber-500/90 px-3 py-2 text-sm font-medium text-dark-900 hover:bg-amber-400 disabled:opacity-40">
-          {busy ? 'Reopening…' : 'Reopen'}
+          {busy ? 'Reopening…' : 'Revise decision'}
         </button>
       </div>
     </div>
