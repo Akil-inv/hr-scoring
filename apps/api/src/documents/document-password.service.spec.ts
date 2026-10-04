@@ -34,6 +34,7 @@ describe('document password', () => {
     await expect(service.set('u1', 'sign-in-password-1', 'short')).rejects.toThrow(/at least 10/);
     await expect(service.set('u1', 'sign-in-password-1', 'priya.menon-docs')).rejects.toThrow(/email/);
     await expect(service.set('u1', 'sign-in-password-1', 'line\nbreak-password')).rejects.toThrow(/line breaks/);
+    await expect(service.set('u1', 'sign-in-password-1', '-dash-first-password')).rejects.toThrow(/cannot start with "-"/);
   });
 
   it('must differ from the sign-in password', async () => {
@@ -69,5 +70,12 @@ describe('document password', () => {
     const e: any = await service.set('u1', 'x', 'a-good-document-pass').catch((x) => x);
     expect(e.getStatus?.()).toBe(429);
     expect(e.message).toMatch(/Too many attempts/);
+  });
+
+  it('asks for a new password, rather than failing, if the old one starts with "-"', async () => {
+    const { service } = await setup({ documentPassword: '-set-before-the-rule' });
+    const e: any = await service.pdf('u1', Buffer.from('%PDF'), 'report').catch((x) => x);
+    expect(e).toBeInstanceOf(ConflictException);
+    expect(e.message).toMatch(/Set a new one/);
   });
 });
