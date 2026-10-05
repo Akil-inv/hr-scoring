@@ -328,7 +328,7 @@ export class EventControlService {
     }
     if (!ok) throw new BadRequestException('Your sign-in password is not right.');
 
-    const counts = await this.removeCandidateData(eventId, user.sub, e.name);
+    const counts = await this.removeCandidateData(eventId, user.sub, e.name, 'done');
     await this.audit.log({
       userId: user.sub, eventId, action: AuditAction.DELETE, entityType: 'Event', entityId: eventId,
       reason: 'Event marked done: candidate data removed, record kept', newValues: counts,
@@ -336,16 +336,44 @@ export class EventControlService {
     return this.summary(await this.load(eventId));
   }
 
-  /** The removal itself, in one transaction: all of it happens or none. */
-  private async removeCandidateData(eventId: string, userId: string, name: string) {
+  /**
+   * Delete a draft nobody needs, so it stops cluttering Event Control. Only a
+   * draft (never started), only by its admins. If candidates were already
+   * loaded into it, their data is removed first, as when an event is marked
+   * done, and the event name must be typed to confirm.
+   */
+  async deleteDraft(eventId: string, confirmName: string | null | undefined, user: Actor) {
+    const e = await this.load(eventId);
+    this.notDone(e);
+    if (e.status !== 'DRAFT') throw new BadRequestException('Only a draft can be deleted. A started event is closed and archived instead.');
+    const candidates = await this.prisma.team.count({ where: { eventId } });
+    if (candidates > 0 && (confirmName ?? '').trim() !== e.name.trim()) {
+      throw new BadRequestException(`It already has ${candidates} candidate${candidates === 1 ? '' : 's'}: type the event name exactly as shown to delete it.`);
+    }
+    const counts = await this.removeCandidateData(eventId, user.sub, e.name, 'draft');
+    await this.audit.log({
+      userId: user.sub, eventId, action: AuditAction.DELETE, entityType: 'Event', entityId: eventId,
+      reason: 'Draft event deleted', newValues: counts,
+    });
+    return true;
+  }
+
+  /**
+   * The removal itself, in one transaction: all of it happens or none.
+   * 'done': after retention; the event stays as a record. 'draft': a draft
+   * being deleted; the event leaves Event Control (kept, deleted, for the audit log).
+   */
+  private async removeCandidateData(eventId: string, userId: string, name: string, mode: 'done' | 'draft') {
+    const why = mode === 'done' ? 'Removed when the event was marked done' : 'Removed when the draft was deleted';
     return this.prisma.$transaction(async (tx) => {
       // Checked again under a lock: another admin may have extended retention,
       // or marked it done, since the checks above.
       const [row] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM events WHERE id = ${eventId}::uuid FOR UPDATE`;
       if (!row) throw new NotFoundException('Event not found.');
       const now = await tx.event.findUnique({ where: { id: eventId } });
-      if (!now || now.doneAt) throw new BadRequestException('This event is already done.');
-      if (!lifecycle(now).due) throw new BadRequestException('Its retention was extended meanwhile; nothing was removed.');
+      if (!now || now.doneAt || now.deletedAt) throw new BadRequestException('This event is already done or deleted.');
+      if (mode === 'done' && !lifecycle(now).due) throw new BadRequestException('Its retention was extended meanwhile; nothing was removed.');
+      if (mode === 'draft' && now.status !== 'DRAFT') throw new BadRequestException('It was started meanwhile; nothing was deleted.');
       if (now.name !== name) throw new BadRequestException('The event was renamed meanwhile; nothing was removed.');
       const teams = await tx.team.findMany({ where: { eventId }, select: { id: true, name: true, teamLeadName: true, teamLeadEmail: true, projectName: true }, orderBy: { createdAt: 'asc' } });
       const members = await tx.teamMember.findMany({ where: { team: { eventId } }, select: { name: true, email: true } });
@@ -385,8 +413,8 @@ export class EventControlService {
       await tx.scorecard.updateMany({ where: { eventId }, data: { overallStrengths: null, areasForImprovement: null, recommendation: null, reopenReason: null } });
       await tx.criterionScore.updateMany({ where: { scorecard: { eventId } }, data: { comment: null } });
       await tx.judgingSession.updateMany({ where: { eventId }, data: { notes: null, delayReason: null } });
-      await tx.sessionJudge.updateMany({ where: { session: { eventId }, removedReason: { not: null } }, data: { removedReason: 'Removed when the event was marked done' } });
-      await tx.conflictDeclaration.updateMany({ where: { eventId }, data: { reason: 'Removed when the event was marked done' } });
+      await tx.sessionJudge.updateMany({ where: { session: { eventId }, removedReason: { not: null } }, data: { removedReason: why } });
+      await tx.conflictDeclaration.updateMany({ where: { eventId }, data: { reason: why } });
       const removedMessages = await tx.judgeMessage.deleteMany({ where: { eventId } });
       const removedLinks = await tx.judgeLink.deleteMany({ where: { eventId } });
 
@@ -399,7 +427,10 @@ export class EventControlService {
           data: { oldValues: Prisma.DbNull, newValues: Prisma.DbNull, reason: scrub(log.reason) },
         });
       }
-      await tx.event.update({ where: { id: eventId }, data: { status: 'ARCHIVED', doneAt: new Date(), doneById: userId } });
+      await tx.event.update({
+        where: { id: eventId },
+        data: mode === 'done' ? { status: 'ARCHIVED', doneAt: new Date(), doneById: userId } : { deletedAt: new Date() },
+      });
       return {
         candidates: teams.length, teamMembers: removedMembers.count, reports: removedReports.count,
         judgeMessages: removedMessages.count, judgeLinks: removedLinks.count, auditEntriesCleaned: logs.length,

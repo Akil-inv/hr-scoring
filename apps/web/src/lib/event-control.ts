@@ -50,6 +50,7 @@ export const ARCHIVE = `mutation($e: String!) { archiveEvent(eventId: $e) { id }
 export const SET_RETENTION = `mutation($e: String!, $m: Int!) { setEventRetention(eventId: $e, months: $m) { id } }`;
 export const EXTEND = `mutation($e: String!, $m: Int!, $r: String!) { extendEventRetention(eventId: $e, months: $m, reason: $r) { id } }`;
 export const MARK_DONE = `mutation($e: String!, $n: String!, $p: String!) { markEventDone(eventId: $e, confirmName: $n, password: $p) { id } }`;
+export const DELETE_DRAFT = `mutation($e: String!, $n: String) { deleteDraftEvent(eventId: $e, confirmName: $n) }`;
 export const SEARCH = `query($e: String!, $q: String!) { eventPeopleSearch(eventId: $e, query: $q) { userId name email } }`;
 export const ADD = `mutation($e: String!, $u: String!, $r: String!) { addEventPerson(eventId: $e, userId: $u, role: $r) }`;
 export const CHANGE = `mutation($e: String!, $u: String!, $r: String!) { changeEventPersonRole(eventId: $e, userId: $u, role: $r) }`;

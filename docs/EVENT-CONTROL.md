@@ -52,6 +52,11 @@ Enforced in the API, not just hidden in the app:
 Draft → Active → Closed → Archived → **Done (record only)**
 
 - **Draft**: only its admins work on it; set it up (Excel upload or wizard).
+- **Delete draft**: a draft that isn't needed can be deleted by its admins, so
+  unused events don't pile up in Event Control. Only drafts (a started event
+  is closed and archived instead). If candidates were already loaded, their
+  data is removed first, as when marking done, and the event name must be
+  typed. The creation and deletion stay in the audit log.
 - **Start**: Draft → Active.
 - **Close**: interview events need every day closed (Results page); judge links
   stop and scores lock. The close date starts the retention clock.
