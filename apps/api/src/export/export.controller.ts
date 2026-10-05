@@ -410,7 +410,10 @@ export class ExportController {
     XLSX.utils.book_append_sheet(wb, sheet, type.slice(0, 31));
     const xlsx = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
     const eventId = eventIdOverride ?? (typeof req.query?.eventId === 'string' ? req.query.eventId : undefined);
-    const locked = await this.documents.xlsx(req.user.sub, xlsx, 'data-export', eventId, { export: type });
+    // The event's name starts the file's password, whatever the file is called.
+    const ev = eventId ? await this.prisma.event.findUnique({ where: { id: eventId }, select: { name: true } }) : null;
+    const { file: locked, prefix } = await this.documents.xlsx(req.user.sub, xlsx, 'data-export', ev?.name ?? eventName, eventId, { export: type });
+    res.setHeader('X-Password-Prefix', prefix);
     const safeName = eventName.replace(/[^a-zA-Z0-9]/g, '_');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${type}_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx"`);

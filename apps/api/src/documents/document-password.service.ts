@@ -20,6 +20,21 @@ import { pdfProtectionAvailable, protectPdf, protectXlsx, ProtectionUnavailable,
  * again; files already downloaded keep the old one.
  */
 
+/**
+ * Each file opens with its own password: the first four letters of what the
+ * file is about (the candidate for a report, the event for an export) in
+ * capitals, followed by the downloader's HR code. "Priya Menon" with HR code
+ * k7#pQ29xLm opens with PRIYk7#pQ29xLm. Sharing one file's password gives
+ * away the HR code, so the code stays the secret; the prefix keeps a password
+ * typed for one candidate's report from opening another candidate's.
+ *
+ * Letters only, accents dropped; digits count; short names are padded with X.
+ */
+export function filePrefix(subject: string): string {
+  const plain = String(subject ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return (plain + 'XXXX').slice(0, 4);
+}
+
 /** As long as a sign-in password must be (auth-kit's default). */
 const MIN_LENGTH = 10;
 
@@ -62,13 +77,13 @@ export class DocumentPasswordService implements OnModuleInit {
     // The same rules as sign-in passwords (length, not the email, not a common one).
     const problem = passwordProblem(password, user?.email ?? '', MIN_LENGTH);
     if (problem) throw new BadRequestException(problem);
-    if (unsafeForProtection(password)) throw new BadRequestException('The document password cannot start with "-" or contain line breaks.');
+    if (unsafeForProtection(password)) throw new BadRequestException('The HR code cannot start with "-" or contain line breaks.');
     if (user?.passwordHash && (await verifyPassword(password, user.passwordHash))) {
-      throw new BadRequestException('Use a different password from the one you sign in with.');
+      throw new BadRequestException('Use an HR code different from the password you sign in with.');
     }
     const setAt = new Date();
     await this.prisma.user.update({ where: { id: userId }, data: { documentPassword: password, documentPasswordSetAt: setAt } });
-    await this.audit.log({ userId, action: AuditAction.UPDATE, entityType: 'User', entityId: userId, reason: 'Document password set' });
+    await this.audit.log({ userId, action: AuditAction.UPDATE, entityType: 'User', entityId: userId, reason: 'HR code set' });
     return { set: true, setAt: setAt.toISOString() };
   }
 
@@ -80,14 +95,14 @@ export class DocumentPasswordService implements OnModuleInit {
       throw new ConflictException({
         statusCode: 409,
         code: 'document_password_unusable',
-        message: 'Your document password starts with "-", which files can\'t be locked with. Set a new one (My account → Document password).',
+        message: 'Your HR code starts with "-", which files can\'t be locked with. Set a new one (My account → HR code).',
       });
     }
     if (!u?.documentPassword) {
       throw new ConflictException({
         statusCode: 409,
         code: 'document_password_required',
-        message: 'Set your document password first (My account → Document password). Downloads open only with it.',
+        message: 'Set your HR code first (My account → HR code). Each file opens with the first four letters of its name plus your HR code.',
       });
     }
     return u.documentPassword;
@@ -97,27 +112,30 @@ export class DocumentPasswordService implements OnModuleInit {
     await this.audit.log({ userId, eventId, action: AuditAction.CREATE, entityType: 'Download', entityId: eventId ?? userId, reason: `Protected download: ${kind}`, newValues: detail });
   }
 
-  async pdf(userId: string, pdf: Buffer, kind: DownloadKind, eventId?: string, detail: Record<string, unknown> = {}): Promise<Buffer> {
-    const password = await this.passwordFor(userId);
-    const out = await this.guard(() => protectPdf(pdf, password));
-    await this.record(userId, kind, eventId, detail);
-    return out;
+  /** `subject`: who or what the file is about; its first four letters start the file's password. */
+  async pdf(userId: string, pdf: Buffer, kind: DownloadKind, subject: string, eventId?: string, detail: Record<string, unknown> = {}): Promise<{ file: Buffer; prefix: string }> {
+    const code = await this.passwordFor(userId);
+    const prefix = filePrefix(subject);
+    const file = await this.guard(() => protectPdf(pdf, prefix + code));
+    await this.record(userId, kind, eventId, { ...detail, prefix });
+    return { file, prefix };
   }
 
-  /** Several PDFs for one download (a day's reports), each locked with the same password. */
-  async pdfs(userId: string, files: { name: string; pdf: Buffer }[], kind: DownloadKind, eventId?: string, detail: Record<string, unknown> = {}) {
-    const password = await this.passwordFor(userId);
+  /** Several PDFs for one download (a day's reports), each with its own candidate's prefix. */
+  async pdfs(userId: string, files: { name: string; pdf: Buffer; subject: string }[], kind: DownloadKind, eventId?: string, detail: Record<string, unknown> = {}) {
+    const code = await this.passwordFor(userId);
     const out: { name: string; pdf: Buffer }[] = [];
-    for (const f of files) out.push({ name: f.name, pdf: await this.guard(() => protectPdf(f.pdf, password)) });
+    for (const f of files) out.push({ name: f.name, pdf: await this.guard(() => protectPdf(f.pdf, filePrefix(f.subject) + code)) });
     await this.record(userId, kind, eventId, { ...detail, files: files.length });
     return out;
   }
 
-  async xlsx(userId: string, xlsx: Buffer, kind: DownloadKind, eventId?: string, detail: Record<string, unknown> = {}): Promise<Buffer> {
-    const password = await this.passwordFor(userId);
-    const out = await protectXlsx(xlsx, password);
-    await this.record(userId, kind, eventId, detail);
-    return out;
+  async xlsx(userId: string, xlsx: Buffer, kind: DownloadKind, subject: string, eventId?: string, detail: Record<string, unknown> = {}): Promise<{ file: Buffer; prefix: string }> {
+    const code = await this.passwordFor(userId);
+    const prefix = filePrefix(subject);
+    const file = await protectXlsx(xlsx, prefix + code);
+    await this.record(userId, kind, eventId, { ...detail, prefix });
+    return { file, prefix };
   }
 
   private async guard<T>(f: () => Promise<T>): Promise<T> {

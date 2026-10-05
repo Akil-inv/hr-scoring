@@ -5,9 +5,11 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 
 /**
- * The document password: every report PDF and Excel file a person downloads
- * is locked with it (on the server, at download). It is theirs alone, set here,
- * and never the sign-in password.
+ * The HR code: every report PDF and Excel file a person downloads is locked
+ * (on the server, at download) with the first four letters of what the file is
+ * about, in capitals, followed by their HR code. Each candidate's report
+ * therefore has its own password. The code is theirs alone, set here, and
+ * never the sign-in password. (Stored as the "document password" in the API.)
  */
 
 type Status = { set: boolean; setAt: string | null };
@@ -40,7 +42,7 @@ export function DocumentPasswordCard() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setMsg(null);
-    if (password !== confirm) { setMsg({ tone: 'err', text: 'The two document passwords do not match.' }); return; }
+    if (password !== confirm) { setMsg({ tone: 'err', text: 'The two HR codes do not match.' }); return; }
     setBusy(true);
     try {
       const res = await fetch('/api/document-password', {
@@ -51,7 +53,7 @@ export function DocumentPasswordCard() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof body?.message === 'string' ? body.message : `Could not save it (${res.status}).`);
       setPassword(''); setConfirm(''); setSignIn(''); setOpen(false);
-      setMsg({ tone: 'ok', text: 'Saved. Files you download from now on open with this password.' });
+      setMsg({ tone: 'ok', text: 'Saved. Files you download from now on open with the first four letters of their name + this HR code.' });
       reload();
     } catch (err: any) {
       setMsg({ tone: 'err', text: err.message });
@@ -66,10 +68,12 @@ export function DocumentPasswordCard() {
     <section id="document-password" className="mt-6 rounded-2xl border border-dark-600 bg-dark-800 p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">Document password</h2>
+          <h2 className="text-lg font-semibold text-white">HR code (for downloaded files)</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Report PDFs and Excel files you download are locked with this password, so only you can open them.
-            They can be printed, but not copied from or edited. Keep it different from your sign-in password.
+            Each report PDF and Excel file you download has its own password: the <strong className="text-slate-200">first four letters
+            of its name in capitals, then your HR code</strong>. A report for Priya Menon opens with <span className="font-mono text-slate-200">PRIY</span> + your code;
+            Daniel Koh&apos;s with <span className="font-mono text-slate-200">DANI</span> + your code; an Excel export with the first four letters of the event.
+            The files can be printed, but not copied from or edited. Keep the code to yourself and different from your sign-in password.
           </p>
           {status && (
             <p className={`mt-2 text-sm ${status.set ? 'text-emerald-300' : 'text-amber-300'}`}>
@@ -88,12 +92,12 @@ export function DocumentPasswordCard() {
       {open && (
         <form onSubmit={submit} className="mt-4 grid max-w-md gap-3">
           <label className="grid gap-1 text-sm text-slate-300">
-            New document password
+            New HR code
             <input type="password" autoComplete="new-password" className={field} value={password}
               onChange={(e) => setPassword(e.target.value)} required minLength={10} />
           </label>
           <label className="grid gap-1 text-sm text-slate-300">
-            Type the document password again
+            Type the HR code again
             <input type="password" autoComplete="new-password" className={field} value={confirm}
               onChange={(e) => setConfirm(e.target.value)} required />
           </label>
@@ -103,8 +107,9 @@ export function DocumentPasswordCard() {
               onChange={(e) => setSignIn(e.target.value)} required />
           </label>
           <p className="text-xs text-slate-500">
-            At least 10 characters. If you forget it, set a new one here and download the files again;
-            files you downloaded before keep the old password.
+            At least 10 characters (the four letters in front are added for you; anyone who learns your code
+            from one file could open the others, so it has to be hard to guess). If you forget it, set a new one
+            here and download the files again; files you downloaded before keep the old code.
           </p>
           <div className="flex gap-2">
             <button type="submit" disabled={busy}
@@ -129,14 +134,14 @@ export function DocumentPasswordNotice() {
   if (!status.set) {
     return (
       <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-200">
-        Downloads are locked with your personal document password, and you haven&apos;t set one yet.{' '}
+        Downloaded files open with the first four letters of their name + your HR code, and you haven&apos;t set an HR code yet.{' '}
         <Link href="/dashboard/account#document-password" className="font-medium underline">Set it in My account</Link>.
       </div>
     );
   }
   return (
     <p className="mb-3 text-xs text-slate-500">
-      🔒 Files you download open with your document password. <Link href="/dashboard/account#document-password" className="underline hover:text-slate-300">Change it</Link>
+      🔒 Each file you download opens with the first four letters of its name in capitals + your HR code (e.g. <span className="font-mono">PRIY</span>…). <Link href="/dashboard/account#document-password" className="underline hover:text-slate-300">Change your HR code</Link>
     </p>
   );
 }
@@ -144,7 +149,7 @@ export function DocumentPasswordNotice() {
 /** A failed download or action, above the page; links to My account when the document password is the reason. */
 export function ActionError({ message, onClose }: { message: string | null; onClose: () => void }) {
   if (!message) return null;
-  const aboutPassword = /document password/i.test(message);
+  const aboutPassword = /document password|HR code/i.test(message);
   return (
     <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-error/30 bg-error/10 px-4 py-2.5 text-sm text-red-300">
       <span>
@@ -152,6 +157,24 @@ export function ActionError({ message, onClose }: { message: string | null; onCl
         {aboutPassword && <> <Link href="/dashboard/account#document-password" className="font-medium underline">Go to My account</Link>.</>}
       </span>
       <button type="button" onClick={onClose} aria-label="Dismiss" className="text-red-300/70 hover:text-red-200">✕</button>
+    </div>
+  );
+}
+
+/** After a download: what this file opens with. */
+export function DownloadNote({ note, onClose }: { note: { name: string; prefix: string | null; zip?: boolean } | null; onClose: () => void }) {
+  if (!note) return null;
+  return (
+    <div role="status" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-200">
+      <span>
+        Downloaded {note.name}.{' '}
+        {note.zip
+          ? <>Each report in it opens with the first four letters of the candidate&apos;s name in capitals + your HR code.</>
+          : note.prefix
+            ? <>It opens with <strong className="font-mono">{note.prefix}</strong> + your HR code.</>
+            : <>It opens with the first four letters of its name + your HR code.</>}
+      </span>
+      <button type="button" onClick={onClose} aria-label="Dismiss" className="text-emerald-300/70 hover:text-emerald-100">✕</button>
     </div>
   );
 }

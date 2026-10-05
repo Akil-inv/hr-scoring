@@ -120,6 +120,8 @@ async function download(url: string, token: string | null, fallback: string) {
   }
   const blob = await res.blob();
   const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallback;
+  // The first part of this file's password (the rest is the person's HR code).
+  const prefix = res.headers.get('X-Password-Prefix');
   const href = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = href;
@@ -128,16 +130,17 @@ async function download(url: string, token: string | null, fallback: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(href), 1000);
+  return { name, prefix };
 }
 
-async function fetchPdf(url: string, token: string | null, init: RequestInit = {}): Promise<{ blob: Blob; name: string }> {
+async function fetchPdf(url: string, token: string | null, init: RequestInit = {}): Promise<{ blob: Blob; name: string; prefix: string | null }> {
   const res = await fetch(url, { ...init, headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` } });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(typeof body?.message === 'string' ? body.message : `Could not load the report (${res.status}).`);
   }
   const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'report.pdf';
-  return { blob: await res.blob(), name };
+  return { blob: await res.blob(), name, prefix: res.headers.get('X-Password-Prefix') };
 }
 
 const fetchPdfPublic = (url: string, token: string | null) => fetchPdf(url, token);

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { AuthError, hashPassword } from '@akil-inv/auth-kit/server';
-import { DocumentPasswordService } from './document-password.service';
+import { DocumentPasswordService, filePrefix } from './document-password.service';
 
 /** A user store and auth service just big enough for the rules. */
 async function setup(opts: { documentPassword?: string | null; confirm?: (p: string) => Promise<boolean> } = {}) {
@@ -50,19 +50,24 @@ describe('document password', () => {
     const status = await service.status('u1');
     expect(status).toEqual({ set: true, setAt: expect.any(String) });
     expect(JSON.stringify(status)).not.toContain('a-good-document-pass');
-    expect(logged[0]).toMatchObject({ entityType: 'User', reason: 'Document password set' });
+    expect(logged[0]).toMatchObject({ entityType: 'User', reason: 'HR code set' });
   });
 
   it('refuses a download until one is set, and audits downloads', async () => {
     const none = await setup();
-    await expect(none.service.xlsx('u1', Buffer.from('x'), 'data-export')).rejects.toThrow(ConflictException);
+    await expect(none.service.xlsx('u1', Buffer.from('x'), 'data-export', 'Graduate Hiring')).rejects.toThrow(ConflictException);
     const some = await setup({ documentPassword: 'a-good-document-pass' });
     const xlsx = require('xlsx');
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet([['a']]), 'S');
-    const out = await some.service.xlsx('u1', xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }), 'data-export', 'ev1', { export: 'scores' });
-    expect(out.subarray(0, 2).toString()).not.toBe('PK');
+    const out = await some.service.xlsx('u1', xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' }), 'data-export', 'Graduate Hiring', 'ev1', { export: 'scores' });
+    expect(out.file.subarray(0, 2).toString()).not.toBe('PK');
+    expect(out.prefix).toBe('GRAD');
     expect(some.logged.at(-1)).toMatchObject({ entityType: 'Download', eventId: 'ev1', reason: 'Protected download: data-export' });
+    // Opens with the prefix + HR code, and not with the HR code alone.
+    const officeCrypto = require('officecrypto-tool');
+    await expect(officeCrypto.decrypt(out.file, { password: 'GRADa-good-document-pass' })).resolves.toBeTruthy();
+    await expect(officeCrypto.decrypt(out.file, { password: 'a-good-document-pass' })).rejects.toBeTruthy();
   });
 
   it('passes on "too many attempts" (429) rather than failing with a server error', async () => {
@@ -74,8 +79,37 @@ describe('document password', () => {
 
   it('asks for a new password, rather than failing, if the old one starts with "-"', async () => {
     const { service } = await setup({ documentPassword: '-set-before-the-rule' });
-    const e: any = await service.pdf('u1', Buffer.from('%PDF'), 'report').catch((x) => x);
+    const e: any = await service.pdf('u1', Buffer.from('%PDF'), 'report', 'Priya').catch((x) => x);
     expect(e).toBeInstanceOf(ConflictException);
     expect(e.message).toMatch(/Set a new one/);
+  });
+});
+
+describe('file passwords', () => {
+  it('start with the first four letters of the name, in capitals', () => {
+    expect(filePrefix('Priya Menon')).toBe('PRIY');
+    expect(filePrefix("O'Brien")).toBe('OBRI');
+    expect(filePrefix('Zoë Ang')).toBe('ZOEA');
+    expect(filePrefix('Li')).toBe('LIXX');
+    expect(filePrefix('Candidate #0001')).toBe('CAND');
+    expect(filePrefix('李明')).toBe('XXXX');
+  });
+
+  it('each report opens only with its own candidate\'s prefix + the HR code', async () => {
+    const { execFileSync } = require('child_process');
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const PDFDocument = require('pdfkit');
+    const sample = await new Promise<Buffer>((resolve) => { const d = new PDFDocument(); const p: Buffer[] = []; d.on('data', (c: Buffer) => p.push(c)); d.on('end', () => resolve(Buffer.concat(p))); d.text('x'); d.end(); });
+    const { service } = await setup({ documentPassword: 'a-good-document-pass' });
+    const [priya, daniel] = await service.pdfs('u1', [{ name: 'a.pdf', pdf: sample, subject: 'Priya Menon' }, { name: 'b.pdf', pdf: sample, subject: 'Daniel Koh' }], 'day-reports');
+    const opens = (pdf: Buffer, pw: string) => {
+      const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fp-')), 'f.pdf');
+      fs.writeFileSync(f, pdf);
+      try { execFileSync('qpdf', ['--check', `--password=${pw}`, f], { stdio: 'pipe' }); return true; } catch { return false; }
+    };
+    expect(opens(priya.pdf, 'PRIYa-good-document-pass')).toBe(true);
+    expect(opens(priya.pdf, 'a-good-document-pass')).toBe(false);
+    expect(opens(daniel.pdf, 'PRIYa-good-document-pass')).toBe(false);
+    expect(opens(daniel.pdf, 'DANIa-good-document-pass')).toBe(true);
   });
 });

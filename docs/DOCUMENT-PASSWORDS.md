@@ -1,6 +1,6 @@
 # Document passwords
 
-Every file HR Scoring hands out is locked with the **document password of the person downloading it**:
+Every file HR Scoring hands out is locked with a password made from **what the file is about plus the downloader's HR code** (see below):
 
 | Download | Where | Locked as |
 |---|---|---|
@@ -10,6 +10,21 @@ Every file HR Scoring hands out is locked with the **document password of the pe
 | Results workbook | Results | Excel, AES-256 (ECMA-376 agile) |
 | Data exports: schedule, raw scores, scores, team aggregates, judge analytics, rankings | Rankings | Excel, AES-256 (these were CSV, which can't carry a password) |
 | The schedule as on screen, drafts included | Schedule → Export | Excel, AES-256 (the page sends the table to the server to be locked) |
+
+## Each file has its own password: name prefix + HR code
+
+A file's password is the **first four letters of what it's about, in capitals, followed by the downloader's HR code** (the personal secret, stored as the "document password"):
+
+| File | Prefix from | Example (HR code `k7#pQ29xLm`) |
+|---|---|---|
+| A candidate's report or preview | the candidate's name | Priya Menon → `PRIYk7#pQ29xLm` |
+| Each report inside a day's zip | that candidate's name | Daniel Koh → `DANIk7#pQ29xLm` |
+| Results workbook, data exports, schedule export | the event's name | October Graduate Interviews → `OCTOk7#pQ29xLm` |
+
+- Letters and digits only, accents dropped (`Zoë` → `ZOEA`), apostrophes and spaces ignored (`O'Brien` → `OBRI`). Shorter than four: padded with `X` (`Li` → `LIXX`); a name with no Latin letters is `XXXX`.
+- So a password typed or shared for one candidate's report doesn't open another candidate's. Sharing one file's password does give away the HR code, so the code stays secret and long (at least 10 characters); the prefix is not a secret.
+- The app says what each file opens with: the PDF viewer shows the prefix, and after a download a note reads "It opens with PRIY + your HR code" (zips: "each report opens with the first four letters of the candidate's name…"). The API sends it in the `X-Password-Prefix` response header and records it in the download's audit entry.
+- In the app this is called the **HR code** (My account → HR code).
 
 **The document password is personal.** Each user sets it once on **My account → Document password**, after re-entering their sign-in password. It must differ from the sign-in password and follows the same rules: at least 10 characters, not containing the email name, and not a common password.
 
