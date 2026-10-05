@@ -129,7 +129,7 @@ export class EventControlService {
       where: { eventId, entityType: { in: ['Event', 'EventUser'] } },
       orderBy: { createdAt: 'desc' },
       take: 8,
-      include: { user: { select: { name: true, email: true } } },
+      include: { user: { select: { name: true, email: true } }, judge: { select: { name: true } } },
     });
     const onEvent = people.some((p) => p.userId === user.sub);
     return {
@@ -142,7 +142,7 @@ export class EventControlService {
         userId: p.user.id, name: p.user.name, email: p.user.email, role: p.role,
         addedAt: p.createdAt, addedBy: p.addedById ? adders.get(p.addedById) ?? null : null,
       })),
-      recentChanges: changes.map((c) => ({ at: c.createdAt, by: c.user?.name || c.user?.email || '', what: c.reason || `${c.action.toLowerCase()} ${c.entityType}` })),
+      recentChanges: changes.map((c) => ({ at: c.createdAt, by: c.user?.name || c.user?.email || (c.judge ? `Judge ${c.judge.name}` : ''), what: c.reason || `${c.action.toLowerCase()} ${c.entityType}` })),
       doneRemoves: DONE_REMOVES,
       doneKeeps: DONE_KEEPS,
     };

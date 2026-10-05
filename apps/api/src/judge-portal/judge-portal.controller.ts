@@ -343,6 +343,7 @@ export class JudgePortalController {
       support: typeof body.support === 'boolean' || body.support === null ? body.support : undefined,
       submit: body.submit === true,
       actorId: judge.id,
+      actorType: 'judge',
       expectedJudgeId: judge.id,
       // conflictConfirmed deliberately not sent: no confirmation is presented
       // to a judge in this portal, and a column that always reads true is worse

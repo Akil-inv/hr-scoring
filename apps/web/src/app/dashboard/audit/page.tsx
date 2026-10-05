@@ -34,7 +34,7 @@ export default function AuditPage() {
                 <span className="text-xs text-slate-400 font-mono">{log.entityId.substring(0, 8)}...</span>
               </div>
               <div className="flex items-center gap-3 text-xs text-slate-400">
-                <span>{log.user?.email}</span>
+                <span>{log.user?.email ?? (log.judge ? `Judge: ${log.judge.name}` : '')}</span>
                 <span>{new Date(log.createdAt).toLocaleString()}</span>
               </div>
             </div>
