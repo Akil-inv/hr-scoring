@@ -234,7 +234,8 @@ function WizardSchedulePage() {
     a.download = `${(event?.name || 'schedule').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${stamp}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
-    setMessage(`Exported ${rows.length} sessions`);
+    const prefix = res.headers.get('X-Password-Prefix');
+    setMessage(`Exported ${rows.length} sessions${prefix ? `. The file opens with ${prefix} + your HR code.` : ''}`);
   };
 
   const printSchedule = () => {

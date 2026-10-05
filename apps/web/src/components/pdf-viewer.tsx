@@ -11,19 +11,21 @@ export default function PdfViewer({
 }: {
   title: string;
   subtitle?: string;
-  load: () => Promise<{ blob: Blob; name: string }>;
+  load: () => Promise<{ blob: Blob; name: string; prefix?: string | null }>;
   onClose: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [name, setName] = useState('report.pdf');
   const [error, setError] = useState<string | null>(null);
+  const [prefix, setPrefix] = useState<string | null>(null);
 
   useEffect(() => {
     let href: string | null = null;
     let live = true;
     load()
-      .then(({ blob, name: n }) => {
+      .then(({ blob, name: n, prefix: p }) => {
         if (!live) return;
+        setPrefix(p ?? null);
         href = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
         setUrl(href);
         setName(n);
@@ -48,7 +50,9 @@ export default function PdfViewer({
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-white">{title}</p>
             {subtitle && <p className="truncate text-xs text-slate-400">{subtitle}</p>}
-            <p className="truncate text-xs text-slate-500">🔒 Opens with your document password, here and when downloaded.</p>
+            <p className="truncate text-xs text-slate-400">
+              🔒 Opens with {prefix ? <><strong className="font-mono text-slate-200">{prefix}</strong> + your HR code</> : 'the first four letters of the name + your HR code'}, here and when downloaded.
+            </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {url && (

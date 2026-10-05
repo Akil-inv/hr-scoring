@@ -249,6 +249,7 @@ export default function RankingsPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [savedNote, setSavedNote] = useState('');
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
   const [showMethodology, setShowMethodology] = useState(false);
 
@@ -320,6 +321,8 @@ export default function RankingsPage() {
       a.href = blobUrl;
       const disposition = res.headers.get('content-disposition');
       a.download = disposition?.split('filename=')[1]?.replace(/"/g, '') || `${fallbackName}.xlsx`;
+      const prefix = res.headers.get('X-Password-Prefix');
+      if (prefix) setSavedNote(`Downloaded ${a.download}. It opens with ${prefix} + your HR code.`);
       a.click();
       URL.revokeObjectURL(blobUrl);
     } catch (e: any) {
@@ -465,6 +468,13 @@ export default function RankingsPage() {
         <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#f87171', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {error}
           <button type="button" onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>✕</button>
+        </div>
+      )}
+
+      {savedNote && (
+        <div role="status" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#6ee7b7', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {savedNote}
+          <button type="button" onClick={() => setSavedNote('')} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>✕</button>
         </div>
       )}
 

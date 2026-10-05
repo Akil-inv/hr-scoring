@@ -435,16 +435,19 @@ export class ReviewService {
   }
 
   /** The stored report for one candidate (made now if it is missing). */
-  async report(eventId: string, sessionId: string, revision?: number): Promise<{ fileName: string; pdf: Buffer }> {
+  async report(eventId: string, sessionId: string, revision?: number): Promise<{ fileName: string; pdf: Buffer; candidate: string }> {
+    // The candidate's name starts the file's password (src/documents).
+    const session = await this.prisma.judgingSession.findFirst({ where: { id: sessionId, eventId }, select: { teamId: true, team: { select: { name: true } } } });
+    if (!session) throw new NotFoundException('That candidate is not in this event.');
+    const candidate = session.team?.name ?? '';
     if (revision) {
-      const session = await this.prisma.judgingSession.findFirst({ where: { id: sessionId, eventId }, select: { teamId: true } });
-      const d = session && (await this.prisma.teamDecision.findUnique({ where: { teamId: session.teamId } }));
+      const d = await this.prisma.teamDecision.findUnique({ where: { teamId: session.teamId } });
       const r = d && (await this.prisma.decisionReport.findUnique({ where: { decisionId_revision: { decisionId: d.id, revision } } }));
       if (!r) throw new NotFoundException(`There is no revision ${revision} of this report.`);
-      return { fileName: r.fileName, pdf: Buffer.from(r.pdf) };
+      return { fileName: r.fileName, pdf: Buffer.from(r.pdf), candidate };
     }
     const r = await this.storeReport(eventId, sessionId);
-    return { fileName: r.fileName, pdf: Buffer.from(r.pdf) };
+    return { fileName: r.fileName, pdf: Buffer.from(r.pdf), candidate };
   }
 
   /**
@@ -596,7 +599,7 @@ export class ReviewService {
   async previewReport(
     eventId: string, sessionId: string,
     input: { decision?: string | null; feedback?: string | null }, userId: string,
-  ): Promise<{ fileName: string; pdf: Buffer }> {
+  ): Promise<{ fileName: string; pdf: Buffer; candidate: string }> {
     const data = await this.load(eventId);
     const record = data.records.find((r) => r.sessionId === sessionId);
     if (!record) throw new NotFoundException('That candidate is not in this event.');
@@ -614,26 +617,26 @@ export class ReviewService {
       },
     };
     const pdf = await buildReportPdf(data, draft, new Date(), { preview: true });
-    return { fileName: reportFileName(record).replace('-assessment.pdf', '-preview.pdf'), pdf };
+    return { fileName: reportFileName(record).replace('-assessment.pdf', '-preview.pdf'), pdf, candidate: record.name };
   }
 
   /** Every decided candidate's report for one day, in interview order, as a zip. */
   async dayReports(
     eventId: string, date: string,
     // Required: no caller may get the day's reports unlocked by leaving it out.
-    lock: (files: { name: string; pdf: Buffer }[]) => Promise<{ name: string; pdf: Buffer }[]>,
+    lock: (files: { name: string; pdf: Buffer; subject: string }[]) => Promise<{ name: string; pdf: Buffer }[]>,
   ): Promise<{ fileName: string; zip: Buffer; count: number }> {
     const data = await this.load(eventId, date);
     const decided = data.records
       .filter((r) => r.decision?.status === 'SUBMITTED' && r.decision.decision !== ABSENT)
       .sort((a, b) => a.start.localeCompare(b.start));
     if (decided.length === 0) throw new BadRequestException('No candidates on this day have a final HR decision yet.');
-    const list: { name: string; pdf: Buffer }[] = [];
+    const list: { name: string; pdf: Buffer; subject: string }[] = [];
     for (const r of decided) {
       const rep = await this.storeReport(eventId, r.sessionId);
-      list.push({ name: `${r.start.replace(':', '')}-${rep.fileName}`, pdf: rep.pdf });
+      list.push({ name: `${r.start.replace(':', '')}-${rep.fileName}`, pdf: rep.pdf, subject: r.name });
     }
-    // Each PDF is locked (with the downloader's document password) before zipping.
+    // Each PDF is locked (its candidate's name prefix + the downloader's HR code) before zipping.
     const files: Record<string, Uint8Array> = {};
     for (const f of await lock(list)) files[f.name] = new Uint8Array(f.pdf);
     const base = data.event.name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'reports';

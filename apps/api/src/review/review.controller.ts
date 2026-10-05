@@ -88,7 +88,8 @@ export class ReviewController {
     await this.check(req, eventId, sessionId);
     const rev = revision && /^\d+$/.test(revision) ? Number(revision) : undefined;
     const out = await this.service.report(eventId, sessionId, rev);
-    const pdf = await this.documents.pdf(req.user.sub, out.pdf, 'report', eventId, { sessionId, revision: rev ?? 'current' });
+    const { file: pdf, prefix } = await this.documents.pdf(req.user.sub, out.pdf, 'report', out.candidate, eventId, { sessionId, revision: rev ?? 'current' });
+    res.setHeader('X-Password-Prefix', prefix);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${view ? 'inline' : 'attachment'}; filename="${out.fileName}"`);
     res.send(pdf);
@@ -126,7 +127,8 @@ export class ReviewController {
   ) {
     await this.check(req, eventId, sessionId);
     const out = await this.service.previewReport(eventId, sessionId, body ?? {}, req.user.sub);
-    const pdf = await this.documents.pdf(req.user.sub, out.pdf, 'report-preview', eventId, { sessionId });
+    const { file: pdf, prefix } = await this.documents.pdf(req.user.sub, out.pdf, 'report-preview', out.candidate, eventId, { sessionId });
+    res.setHeader('X-Password-Prefix', prefix);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${out.fileName}"`);
     res.send(pdf);
@@ -137,7 +139,8 @@ export class ReviewController {
     await this.check(req, eventId);
     const day = this.date(date);
     const data = await this.service.load(eventId);
-    const buffer = await this.documents.xlsx(req.user.sub, buildResultsWorkbook(data, day), 'results-export', eventId, { date: day ?? 'all' });
+    const { file: buffer, prefix } = await this.documents.xlsx(req.user.sub, buildResultsWorkbook(data, day), 'results-export', data.event.name, eventId, { date: day ?? 'all' });
+    res.setHeader('X-Password-Prefix', prefix);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${resultsFileName(data.event.name, day)}"`);
     res.send(buffer);

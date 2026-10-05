@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
-import { DocumentPasswordNotice, ActionError } from '@/components/document-password';
+import { DocumentPasswordNotice, ActionError, DownloadNote } from '@/components/document-password';
 import { useEventId } from '@/lib/event-store';
 import { dayLabel, messageOf } from '@/components/upload-common';
 import { CandidateRecord, DECISIONS, ReviewData, downloadDayReports, downloadResults, fetchReport, finalDecision, fmtScore, reviewAction, scoreTone } from '@/lib/review';
@@ -24,6 +24,7 @@ export default function ResultsPage() {
   // A failed action (download, close) is shown above the page, not instead of it.
   const [actionError, setActionError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<CandidateRecord | null>(null);
+  const [saved, setSaved] = useState<{ name: string; prefix: string | null; zip?: boolean } | null>(null);
 
   const load = useCallback(async () => {
     if (!eventId) return;
@@ -45,12 +46,14 @@ export default function ResultsPage() {
     if (!eventId) return;
     setBusy(which ?? 'ALL');
     setActionError(null);
-    try { await downloadResults(eventId, token, which); } catch (e: any) { setActionError(e.message); }
+    setSaved(null);
+    try { setSaved(await downloadResults(eventId, token, which)); } catch (e: any) { setActionError(e.message); }
     setBusy(null);
   };
-  const run = async (key: string, fn: () => Promise<void>) => {
+  const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
     setActionError(null);
+    setSaved(null);
     try { await fn(); } catch (e: any) { setActionError(e.message); }
     setBusy(null);
   };
@@ -69,6 +72,7 @@ export default function ResultsPage() {
     <div>
       <DocumentPasswordNotice />
       <ActionError message={actionError} onClose={() => setActionError(null)} />
+      <DownloadNote note={saved} onClose={() => setSaved(null)} />
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
           <h1 className="text-xl font-bold text-white">Results</h1>
@@ -80,7 +84,7 @@ export default function ResultsPage() {
           {date !== 'ALL' && (
             <>
               {records.some((r) => finalDecision(r) && finalDecision(r) !== 'DID_NOT_ATTEND') && (
-                <button type="button" disabled={!!busy} onClick={() => run('ZIP', () => downloadDayReports(eventId, token, date))}
+                <button type="button" disabled={!!busy} onClick={() => run('ZIP', async () => setSaved({ ...(await downloadDayReports(eventId, token, date)), zip: true }))}
                   className="px-3 py-2 rounded-lg border border-dark-500 text-sm text-slate-200 hover:border-accent/60 disabled:opacity-40">
                   {busy === 'ZIP' ? 'Preparing…' : 'Reports for this day (PDF, zip)'}
                 </button>
