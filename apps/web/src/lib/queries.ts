@@ -58,7 +58,7 @@ export const ACTIVATE_SCORING_TEMPLATE = `
 export const AUDIT_LOGS_QUERY = `
   query AuditLogs($eventId: String!, $take: Float, $skip: Float) {
     auditLogsByEvent(eventId: $eventId, take: $take, skip: $skip) {
-      id action entityType entityId oldValues newValues reason createdAt user { email }
+      id action entityType entityId oldValues newValues reason createdAt user { email } judge { name }
     }
   }
 `;

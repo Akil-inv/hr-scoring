@@ -33,6 +33,11 @@ enum AuditAction {
   UPDATE
 }
 
+type AuditJudge {
+  id: String!
+  name: String!
+}
+
 type AuditLogEntry {
   action: AuditAction!
   createdAt: DateTime!
@@ -40,11 +45,13 @@ type AuditLogEntry {
   entityType: String!
   eventId: String
   id: String!
+  judge: AuditJudge
+  judgeId: String
   newValues: JSON
   oldValues: JSON
   reason: String
   user: AuditUser
-  userId: String!
+  userId: String
 }
 
 type AuditUser {

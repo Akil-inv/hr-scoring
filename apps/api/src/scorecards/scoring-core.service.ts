@@ -68,6 +68,8 @@ export interface WriteScoresParams {
   conflictConfirmed?: boolean;
   /** Audit actor. The judge's own id when scoring through the portal. */
   actorId: string;
+  /** 'judge' when actorId is a judge (portal), not a user account. */
+  actorType?: 'user' | 'judge';
   /** Set when the caller has already established the judge's identity. */
   expectedJudgeId?: string;
   /**
@@ -658,8 +660,10 @@ export class ScoringCoreService {
       : undefined;
 
     try {
+      const judgeActor = params.actorType === 'judge';
       await this.audit.log({
-        userId: params.actorId,
+        userId: judgeActor ? null : params.actorId,
+        judgeId: judgeActor ? params.actorId : null,
         eventId: scorecard.eventId,
         action: AuditAction.UPDATE,
         entityType: 'Scorecard',
@@ -701,8 +705,9 @@ export class ScoringCoreService {
     actorId: string;
   }) {
     try {
+      // Only the judge portal records breaks: the actor is the judge.
       await this.audit.log({
-        userId: ctx.actorId,
+        judgeId: ctx.actorId,
         eventId: ctx.eventId,
         action: AuditAction.UPDATE,
         entityType: 'SessionJudge',

@@ -12,10 +12,18 @@ export class AuditUser {
 }
 
 @ObjectType()
+export class AuditJudge {
+  @Field() id!: string;
+  @Field() name!: string;
+}
+
+@ObjectType()
 export class AuditLogEntry {
   @Field() id!: string;
   @Field({ nullable: true }) eventId?: string;
-  @Field() userId!: string;
+  @Field({ nullable: true }) userId?: string;
+  /** Set when a judge did it through their link (they have no user account). */
+  @Field({ nullable: true }) judgeId?: string;
   @Field(() => AuditAction) action!: AuditAction;
   @Field() entityType!: string;
   @Field() entityId!: string;
@@ -24,4 +32,5 @@ export class AuditLogEntry {
   @Field({ nullable: true }) reason?: string;
   @Field() createdAt!: Date;
   @Field(() => AuditUser, { nullable: true }) user?: AuditUser;
+  @Field(() => AuditJudge, { nullable: true }) judge?: AuditJudge;
 }
