@@ -76,6 +76,12 @@ export class EventsService {
   async softDelete(id: string, userId: string) {
     const existing = await this.prisma.event.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Event not found');
+    // Deleting goes through Event Control (deleteDraftEvent), which removes any
+    // candidate data first; started events are closed and archived instead.
+    if (existing.status !== 'DRAFT') throw new BadRequestException('Only a draft can be deleted. A started event is closed and archived instead.');
+    if (await this.prisma.team.count({ where: { eventId: id } })) {
+      throw new BadRequestException('This draft has candidates: delete it from Event Control.');
+    }
 
     const deleted = await this.prisma.event.update({
       where: { id },

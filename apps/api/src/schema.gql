@@ -467,6 +467,7 @@ type Mutation {
   createTrack(input: CreateTrackInput!): TrackEntity!
   createUser(input: CreateUserInput!): UserEntity!
   declareConflict(input: DeclareConflictInput!): ConflictEntity!
+  deleteDraftEvent(confirmName: String, eventId: String!): Boolean!
   deleteEvent(id: String!): EventEntity!
   deleteJudge(id: String!): JudgeEntity!
   deleteRoom(id: String!): RoomEntity!

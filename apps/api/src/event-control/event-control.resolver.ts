@@ -168,6 +168,16 @@ export class EventControlResolver {
   }
 
   @Roles('ADMIN')
+  @Mutation(() => Boolean)
+  deleteDraftEvent(
+    @Args('eventId') eventId: string,
+    @Args('confirmName', { type: () => String, nullable: true }) confirmName: string | null,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.deleteDraft(eventId, confirmName, user);
+  }
+
+  @Roles('ADMIN')
   @Mutation(() => ControlledEvent)
   async markEventDone(
     @Args('eventId') eventId: string,

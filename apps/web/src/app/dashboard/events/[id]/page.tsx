@@ -6,12 +6,12 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { useEventId, useEventStore } from '@/lib/event-store';
 import {
-  ADD, addMonths, ARCHIVE, CHANGE, CLOSE, ControlledEvent, DETAIL, DIRECTORY, EventDetail, EXTEND, MARK_DONE, Person,
+  ADD, addMonths, ARCHIVE, CHANGE, CLOSE, ControlledEvent, DELETE_DRAFT, DETAIL, DIRECTORY, EventDetail, EXTEND, MARK_DONE, Person,
   REMOVE, ROLES, roleLabel, SEARCH, SET_RETENTION, START, dateRange, day, gql, initials, when,
 } from '@/lib/event-control';
 import { btn, card, Chip, Dialog, ErrorNote, input, StageBadge } from '@/components/event-control-ui';
 
-type Modal = null | 'close' | 'extend' | 'done';
+type Modal = null | 'close' | 'extend' | 'done' | 'delete';
 
 export default function Page() {
   return <Suspense fallback={null}><EventPage /></Suspense>;
@@ -107,6 +107,7 @@ function EventPage() {
         </div>
         <div className="flex flex-wrap gap-2.5">
           {!done && !current && <button type="button" className={btn.secondary} onClick={workOnIt}>Work on this event</button>}
+          {admin && ev.stage === 'DRAFT' && <button type="button" className={btn.danger} disabled={busy} onClick={() => setModal('delete')}>Delete draft</button>}
           {admin && ev.stage === 'DRAFT' && <button type="button" className={btn.primary} disabled={busy} onClick={() => act(START, { e: ev.id })}>Start event</button>}
           {admin && ev.stage === 'ACTIVE' && <button type="button" className={btn.danger} disabled={busy} onClick={() => setModal('close')}>Close event</button>}
           {admin && ev.stage === 'CLOSED' && <button type="button" className={btn.secondary} disabled={busy} onClick={() => act(ARCHIVE, { e: ev.id })}>Archive</button>}
@@ -176,6 +177,19 @@ function EventPage() {
 
       {modal === 'close' && <CloseDialog ev={ev} until={closeDue} busy={busy} onClose={() => setModal(null)} onConfirm={() => act(CLOSE, { e: ev.id }, () => setModal(null))} />}
       {modal === 'extend' && <ExtendDialog ev={ev} busy={busy} onClose={() => setModal(null)} onConfirm={(m, r) => act(EXTEND, { e: ev.id, m, r }, () => setModal(null))} error={error} />}
+      {modal === 'delete' && <DeleteDraftDialog ev={ev} busy={busy} error={error} onClose={() => setModal(null)}
+        onConfirm={async (name) => {
+          setBusy(true);
+          setError(null);
+          try {
+            await gql(token, DELETE_DRAFT, { e: ev.id, n: name || null });
+            reloadEvents();
+            router.push(`/dashboard/events?deleted=${encodeURIComponent(ev.name)}`);
+          } catch (e: any) {
+            setError(e.message);
+            setBusy(false);
+          }
+        }} />}
       {modal === 'done' && <DoneDialog ev={ev} busy={busy} onClose={() => setModal(null)} onExtend={() => setModal('extend')} onConfirm={(n, pw) => act(MARK_DONE, { e: ev.id, n, p: pw }, () => setModal(null))} error={error} />}
     </div>
   );
@@ -354,6 +368,39 @@ function ExtendDialog({ ev, busy, onClose, onConfirm, error }: { ev: EventDetail
         <div className="flex flex-wrap justify-end gap-2.5">
           <button type="button" className={btn.secondary} onClick={onClose}>Cancel</button>
           <button type="submit" className={btn.primary} disabled={busy || reason.trim().length < 5}>Extend</button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function DeleteDraftDialog({ ev, busy, error, onClose, onConfirm }: { ev: EventDetail; busy: boolean; error: string | null; onClose: () => void; onConfirm: (name: string) => void }) {
+  const [name, setName] = useState('');
+  const candidates = ev.progress?.candidates ?? 0;
+  const ready = candidates === 0 || name.trim() === ev.name.trim();
+  return (
+    <Dialog title={`Delete the draft ${ev.name}?`} onClose={onClose} danger>
+      <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); if (ready) onConfirm(name); }}>
+        <p className="text-sm leading-relaxed text-[#c3cad6]">
+          It disappears from Event Control and the event list for everyone on it. It was never started, so no judging has happened.
+          {' '}Its creation and deletion stay in the audit log.
+        </p>
+        {candidates > 0 ? (
+          <>
+            <p className="rounded-xl bg-red-500/[0.08] px-3.5 py-3 text-[13px] leading-relaxed text-[#e8edf5]">
+              It already has <strong>{candidates} candidate{candidates === 1 ? '' : 's'}</strong>. Their names, contact details and any notes are removed, the same as when an event is marked done. This can&apos;t be undone.
+            </p>
+            <label className="flex flex-col gap-1.5 text-[13px] font-medium text-[#c3cad6]">Type the event name to confirm
+              <input className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder={ev.name} autoComplete="off" />
+            </label>
+          </>
+        ) : (
+          <p className="text-[13px] text-[#8694a8]">It has no candidates, so no personal data is involved.</p>
+        )}
+        <ErrorNote message={error} />
+        <div className="flex flex-wrap justify-end gap-2.5">
+          <button type="button" className={btn.secondary} onClick={onClose}>Keep it</button>
+          <button type="submit" className={btn.dangerSolid} disabled={busy || !ready}>{busy ? 'Deleting…' : 'Delete draft'}</button>
         </div>
       </form>
     </Dialog>

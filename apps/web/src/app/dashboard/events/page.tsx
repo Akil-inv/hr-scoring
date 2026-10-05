@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/lib/auth-store';
 import { useEventId } from '@/lib/event-store';
 import { ControlledEvent, DIRECTORY, dateRange, day, gql, retentionText, roleLabel } from '@/lib/event-control';
@@ -15,7 +16,12 @@ type Filter = 'all' | 'mine' | 'DRAFT' | 'ACTIVE' | 'CLOSED' | 'ARCHIVED' | 'DON
  * Everyone on staff sees every event's name, status, dates and admins, so they
  * know whom to ask. What's inside an event is only for the people on it.
  */
-export default function EventControlPage() {
+export default function Page() {
+  return <Suspense fallback={null}><EventControlPage /></Suspense>;
+}
+
+function EventControlPage() {
+  const deleted = useSearchParams().get('deleted');
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
   const currentId = useEventId();
@@ -69,6 +75,11 @@ export default function EventControlPage() {
       </div>
 
       <ErrorNote message={error} />
+      {deleted && (
+        <div role="status" className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.07] px-5 py-3.5 text-sm text-[#e8edf5]">
+          The draft <strong>{deleted}</strong> was deleted.
+        </div>
+      )}
 
       {due.map((e) => (
         <div key={e.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-red-500/25 bg-red-500/[0.07] px-5 py-4">
