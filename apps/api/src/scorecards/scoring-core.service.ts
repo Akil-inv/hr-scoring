@@ -197,7 +197,7 @@ export class ScoringCoreService {
     // The event can ask for whole numbers only (Event Control), whatever steps
     // the rubric allows: then no criterion takes less than a step of 1.
     const template = await this.prisma.scoringTemplate.findUnique({ where: { id: templateId }, select: { event: { select: { wholeNumberScores: true } } } });
-    if (template?.event?.wholeNumberScores) for (const c of all) c.scoreIncrement = Math.max(1, c.scoreIncrement);
+    if (template?.event?.wholeNumberScores) for (const c of all) c.scoreIncrement = Math.max(1, Math.ceil(c.scoreIncrement));
 
     const categoryIds = new Set(
       all.map((c) => c.parentId).filter(Boolean) as string[],

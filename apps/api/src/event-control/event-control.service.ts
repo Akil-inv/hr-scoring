@@ -155,7 +155,7 @@ export class EventControlService {
   private async scoringSteps(eventId: string) {
     const [started, finest] = await Promise.all([
       this.prisma.scorecard.count({ where: { eventId, status: { not: 'NOT_STARTED' } } }),
-      this.prisma.scoringCriterion.aggregate({ where: { template: { eventId } }, _min: { scoreIncrement: true } }),
+      this.prisma.scoringCriterion.aggregate({ where: { template: { eventId, status: 'ACTIVE' } }, _min: { scoreIncrement: true } }),
     ]);
     const step = finest._min.scoreIncrement;
     return { scoringStarted: started > 0, rubricStep: step === null || step === undefined ? null : Number(step) };

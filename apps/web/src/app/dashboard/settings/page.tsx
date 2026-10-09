@@ -17,7 +17,7 @@ type Key = 'fileProtection' | 'twoFactor';
 const QUERY = `query { platformSettings { fileProtection twoFactor updatedAt } }`;
 const UPDATE = `mutation($i: PlatformSettingsInput!, $p: String!) { updatePlatformSettings(input: $i, signInPassword: $p) { fileProtection twoFactor updatedAt } }`;
 
-const SWITCHES: { key: Key; title: string; on: string; off: string }[] = [
+const SWITCHES: { key: Key; title: string; on: string; off: string; switchingOn?: string }[] = [
   {
     key: 'fileProtection',
     title: 'File passwords on downloads',
@@ -29,6 +29,7 @@ const SWITCHES: { key: Key; title: string; on: string; off: string }[] = [
     title: 'Two-factor sign-in',
     on: 'People can turn on a 6-digit code from an authenticator app (My account), and are asked for it at every sign-in.',
     off: "Nobody is asked for a code and the option is hidden. Anyone who had set it up keeps their set-up: it applies again if you switch this back on.",
+    switchingOn: 'Everyone who has two-factor set up is signed out now (you too, if you use it), so they sign in again with their code.',
   },
 ];
 
@@ -111,6 +112,7 @@ export default function SettingsPage() {
         <Dialog title={`Switch ${pending.title.toLowerCase()} ${change.to ? 'on' : 'off'}?`} onClose={close} danger={!change.to}>
           <form onSubmit={submit} className="space-y-4">
             <p className="text-sm text-slate-300">{change.to ? pending.on : pending.off}</p>
+            {change.to && pending.switchingOn && <p className="text-sm text-amber-200">{pending.switchingOn}</p>}
             <p className="text-sm text-slate-400">This applies to everyone, straight away.</p>
             <label className="grid gap-1.5 text-sm text-slate-300">
               Your sign-in password, to confirm

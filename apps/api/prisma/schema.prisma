@@ -954,7 +954,7 @@ model PlatformSetting {
   fileProtection Boolean  @default(true) @map("file_protection")
   /// Two-factor sign-in offered and asked for (people's set-ups are kept while off).
   twoFactor      Boolean  @default(true) @map("two_factor")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
   updatedById    String?  @map("updated_by_id") @db.Uuid
 
   @@map("platform_settings")

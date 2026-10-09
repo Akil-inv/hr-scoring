@@ -63,7 +63,13 @@ export class SettingsResolver {
     if (!ok) throw new BadRequestException('Your sign-in password is not right.');
 
     const before = await this.settings.get();
-    const after = await this.settings.update(input ?? {}, user.sub);
+    const changes = Object.fromEntries((['fileProtection', 'twoFactor'] as const)
+      .filter((k) => typeof input?.[k] === 'boolean' && input[k] !== before[k]).map((k) => [k, input[k]]));
+    if (Object.keys(changes).length === 0) return before;
+    const after = await this.settings.update(changes, user.sub);
+    // Back on: sessions started without a code while it was off end now, so
+    // everyone with two-factor set up is asked for their code again.
+    if (!before.twoFactor && after.twoFactor) await this.auth.adminSignOutTwoFactorUsers({ id: user.sub, email: user.email, claims: { role: user.role } });
     for (const key of ['fileProtection', 'twoFactor'] as const) {
       if (before[key] === after[key]) continue;
       await this.audit.log({
