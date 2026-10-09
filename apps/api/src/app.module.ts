@@ -32,6 +32,7 @@ import { SetupUploadModule } from './setup-upload/setup-upload.module';
 import { InterviewScheduleModule } from './interview-schedule/interview-schedule.module';
 import { ReviewModule } from './review/review.module';
 import { DocumentsModule } from './documents/documents.module';
+import { SettingsModule } from './settings/settings.module';
 import { EventControlModule } from './event-control/event-control.module';
 import { HealthResolver } from './health.resolver';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -158,6 +159,7 @@ import { GqlThrottlerGuard } from './common/gql-throttler.guard';
     authKitModule,
     AuthModule,
     AuditModule,
+    SettingsModule,
     DocumentsModule,
     EventsModule,
     TracksModule,

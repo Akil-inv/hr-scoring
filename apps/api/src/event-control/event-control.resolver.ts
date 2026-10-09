@@ -1,4 +1,4 @@
-import { Args, Field, InputType, Int, Mutation, ObjectType, Query, Resolver } from '@nestjs/graphql';
+import { Args, Field, Float, InputType, Int, Mutation, ObjectType, Query, Resolver } from '@nestjs/graphql';
 import { GraphQLISODateTime } from '@nestjs/graphql';
 import { Roles } from '../auth/roles.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -59,6 +59,8 @@ export class ControlledEvent {
   @Field() onEvent!: boolean;
   @Field(() => [EventPerson]) admins!: EventPerson[];
   @Field(() => EventProgress, { nullable: true }) progress!: EventProgress | null;
+  /** Judges score in whole numbers only, whatever steps the rubric allows. */
+  @Field() wholeNumberScores!: boolean;
 }
 
 @ObjectType()
@@ -67,6 +69,10 @@ export class EventControlDetail extends ControlledEvent {
   @Field(() => [EventChange]) recentChanges!: EventChange[];
   @Field(() => [String]) doneRemoves!: string[];
   @Field(() => [String]) doneKeeps!: string[];
+  /** A judge has started scoring: the scoring steps are fixed from then on. */
+  @Field() scoringStarted!: boolean;
+  /** The finest step the rubric allows (0.25 lets a judge give 3.75); null before there is a rubric. */
+  @Field(() => Float, { nullable: true }) rubricStep!: number | null;
 }
 
 @InputType()
@@ -148,6 +154,12 @@ export class EventControlResolver {
   @Mutation(() => ControlledEvent)
   async archiveEvent(@Args('eventId') eventId: string, @CurrentUser() user: any) {
     return this.wrap(await this.service.archive(eventId, user));
+  }
+
+  @Roles('ADMIN')
+  @Mutation(() => ControlledEvent)
+  async setWholeNumberScores(@Args('eventId') eventId: string, @Args('on') on: boolean, @CurrentUser() user: any) {
+    return this.wrap(await this.service.setWholeNumberScores(eventId, on, user));
   }
 
   @Roles('ADMIN')

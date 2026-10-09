@@ -140,7 +140,8 @@ export class JudgePortalController {
           criterionName: cs.criterion?.name,
           maxScore: cs.criterion?.maxScore,
           minScore: (cs.criterion as any)?.minScore ?? 0,
-          scoreIncrement: Number((cs.criterion as any)?.scoreIncrement ?? 1) || 1,
+          // Whole numbers only when the event says so (Event Control), whatever the rubric allows.
+          scoreIncrement: event?.wholeNumberScores ? Math.max(1, Math.ceil(Number((cs.criterion as any)?.scoreIncrement ?? 1) || 1)) : Number((cs.criterion as any)?.scoreIncrement ?? 1) || 1,
           description: cs.criterion?.description ?? null,
           displayOrder: cs.criterion?.displayOrder ?? 0,
           guidanceText: cs.criterion?.guidanceText,

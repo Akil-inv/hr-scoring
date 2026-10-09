@@ -117,6 +117,7 @@ type ControlledEvent {
   stage: String!
   startDate: DateTime!
   status: String!
+  wholeNumberScores: Boolean!
 }
 
 input CreateEventInput {
@@ -261,10 +262,13 @@ type EventControlDetail {
   retainUntil: DateTime
   retentionExtraMonths: Int!
   retentionMonths: Int!
+  rubricStep: Float
+  scoringStarted: Boolean!
   setupMode: String!
   stage: String!
   startDate: DateTime!
   status: String!
+  wholeNumberScores: Boolean!
 }
 
 type EventEntity {
@@ -506,6 +510,7 @@ type Mutation {
   setJudgeBreak(input: SetJudgeBreakInput!): OperationResult!
   setJudgeExpertise(input: SetJudgeExpertiseInput!): JudgeExpertiseEntity!
   setRoomAvailability(date: DateTime!, eventId: String!, roomId: String!, session: String!, unavailable: Boolean!): OperationOk!
+  setWholeNumberScores(eventId: String!, on: Boolean!): ControlledEvent!
   startEvent(eventId: String!): ControlledEvent!
   submitScorecard(input: SubmitScorecardInput!): ScorecardEntity!
   swapJudge(input: SwapJudgeInput!): OperationResult!
@@ -515,6 +520,7 @@ type Mutation {
   updateCriterion(id: String!, input: UpdateCriterionInput!): ScoringCriterionEntity!
   updateEvent(id: String!, input: UpdateEventInput!): EventEntity!
   updateJudge(id: String!, input: UpdateJudgeInput!): JudgeEntity!
+  updatePlatformSettings(input: PlatformSettingsInput!, signInPassword: String!): PlatformSettingsView!
   updateRoom(id: String!, input: UpdateRoomInput!): RoomEntity!
   updateScoringTemplate(id: String!, input: UpdateScoringTemplateInput!): ScoringTemplateEntity!
   updateSessionStage(input: UpdateStageInput!): OperationResult!
@@ -572,6 +578,17 @@ type OutstandingScoring {
   teams: [String!]!
 }
 
+input PlatformSettingsInput {
+  fileProtection: Boolean
+  twoFactor: Boolean
+}
+
+type PlatformSettingsView {
+  fileProtection: Boolean!
+  twoFactor: Boolean!
+  updatedAt: DateTime
+}
+
 enum PresentationMode {
   IN_PERSON
   VIRTUAL
@@ -599,6 +616,7 @@ type Query {
   me: UserResponse!
   myEvents: [MyEvent!]!
   outstandingScoring(eventId: String!): [OutstandingScoring!]!
+  platformSettings: PlatformSettingsView!
   rankings(eventId: String!, trackId: String): RankingOutput
   room(id: String!): RoomEntity!
   roomUnavailability(eventId: String!): [RoomUnavailabilityEntity!]!

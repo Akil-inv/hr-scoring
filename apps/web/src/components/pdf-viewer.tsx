@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useFilesLocked } from './document-password';
 
 /**
  * Shows a PDF inside the app, over the page, with a download button. The PDF
@@ -18,6 +19,7 @@ export default function PdfViewer({
   const [name, setName] = useState('report.pdf');
   const [error, setError] = useState<string | null>(null);
   const [prefix, setPrefix] = useState<string | null>(null);
+  const locked = useFilesLocked();
 
   useEffect(() => {
     let href: string | null = null;
@@ -50,9 +52,9 @@ export default function PdfViewer({
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-white">{title}</p>
             {subtitle && <p className="truncate text-xs text-slate-400">{subtitle}</p>}
-            <p className="truncate text-xs text-slate-400">
+            {(prefix || locked !== false) && <p className="truncate text-xs text-slate-400">
               🔒 Opens with {prefix ? <><strong className="font-mono text-slate-200">{prefix}</strong> + your HR code</> : 'the first four letters of the name + your HR code'}, here and when downloaded.
-            </p>
+            </p>}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {url && (

@@ -145,7 +145,38 @@ export class EventControlService {
       recentChanges: changes.map((c) => ({ at: c.createdAt, by: c.user?.name || c.user?.email || (c.judge ? `Judge ${c.judge.name}` : ''), what: c.reason || `${c.action.toLowerCase()} ${c.entityType}` })),
       doneRemoves: DONE_REMOVES,
       doneKeeps: DONE_KEEPS,
+      ...(await this.scoringSteps(eventId)),
     };
+  }
+
+  // ─── Scoring: whole numbers only ──────────────────────────────────────────
+
+  /** Whether any judge has started scoring, and the finest step the rubric allows (null: no rubric yet). */
+  private async scoringSteps(eventId: string) {
+    const [started, finest] = await Promise.all([
+      this.prisma.scorecard.count({ where: { eventId, status: { not: 'NOT_STARTED' } } }),
+      this.prisma.scoringCriterion.aggregate({ where: { template: { eventId, status: 'ACTIVE' } }, _min: { scoreIncrement: true } }),
+    ]);
+    const step = finest._min.scoreIncrement;
+    return { scoringStarted: started > 0, rubricStep: step === null || step === undefined ? null : Number(step) };
+  }
+
+  /**
+   * Whole numbers only (e.g. 3 or 4, never 3.75), whatever steps the rubric
+   * allows, or back to the rubric's own steps. The rubric itself is left as
+   * it is. Only until the first judge starts scoring, so one candidate is
+   * never scored on a different scale from another.
+   */
+  async setWholeNumberScores(eventId: string, on: boolean, user: Actor) {
+    const e = await this.load(eventId);
+    this.notDone(e);
+    if (!!e.wholeNumberScores === on) return this.summary(e);
+    if ((await this.scoringSteps(eventId)).scoringStarted) {
+      throw new BadRequestException('Judges have already started scoring, so the scoring steps can no longer change for this event.');
+    }
+    const out = await this.prisma.event.update({ where: { id: eventId }, data: { wholeNumberScores: on } });
+    await this.log(user, eventId, on ? 'Scores set to whole numbers only' : "Scores back to the rubric's steps");
+    return this.summary(out);
   }
 
   private summary(e: any) {
@@ -155,6 +186,7 @@ export class EventControlService {
       stage: l.stage, startDate: e.startDate, endDate: e.endDate, closedAt: e.closedAt ?? null, doneAt: e.doneAt ?? null,
       retentionMonths: e.retentionMonths, retentionExtraMonths: e.retentionExtraMonths,
       retainUntil: l.retainUntil, due: l.due, createdAt: e.createdAt,
+      wholeNumberScores: !!e.wholeNumberScores,
     };
   }
 

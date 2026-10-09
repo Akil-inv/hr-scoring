@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { decryptText, encryptText } from '../crypto/field-crypto';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { SettingsService } from '../settings/settings.service';
 
 /**
  * Sign-in for HR Scoring, through the reusable auth-kit module: password and
@@ -103,8 +104,8 @@ function emailSettings() {
 }
 
 export const authKitModule = AuthKitModule.forRootAsync({
-  inject: [PrismaService, ConfigService, AuditService],
-  useFactory: (prisma: PrismaService, config: ConfigService, audit: AuditService) => ({
+  inject: [PrismaService, ConfigService, AuditService, SettingsService],
+  useFactory: (prisma: PrismaService, config: ConfigService, audit: AuditService, settings: SettingsService) => ({
     config: {
       jwtSecret: config.get<string>('JWT_SECRET', 'dev-secret-change-in-production'),
       appName: 'HR Scoring',
@@ -114,6 +115,9 @@ export const authKitModule = AuthKitModule.forRootAsync({
       ...emailSettings(),
       // Two-factor secrets are encrypted like candidate data (AWS KMS when on).
       secretBox: { seal: (s: string) => encryptText(s), open: (s: string) => decryptText(s) },
+      // Super admins can switch two-factor off (Settings): then nobody is asked
+      // for a code and nobody can set it up; existing set-ups are kept.
+      twoFactor: () => settings.twoFactor(),
       onEvent: async (e: AuthEvent) => {
         const text = EVENT_TEXT[e.type];
         // Failed sign-ins are not written: the actor may not exist, and the audit log needs a real user.

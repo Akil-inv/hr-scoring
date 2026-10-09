@@ -3,7 +3,7 @@ import { AuthError, hashPassword } from '@akil-inv/auth-kit/server';
 import { DocumentPasswordService, filePrefix } from './document-password.service';
 
 /** A user store and auth service just big enough for the rules. */
-async function setup(opts: { documentPassword?: string | null; confirm?: (p: string) => Promise<boolean> } = {}) {
+async function setup(opts: { documentPassword?: string | null; confirm?: (p: string) => Promise<boolean>; protection?: boolean } = {}) {
   const user: any = {
     id: 'u1', email: 'priya.menon@example.com',
     passwordHash: await hashPassword('sign-in-password-1'),
@@ -19,7 +19,8 @@ async function setup(opts: { documentPassword?: string | null; confirm?: (p: str
   const logged: any[] = [];
   const audit: any = { log: async (e: any) => logged.push(e) };
   const auth: any = { confirmPassword: async (_: any, p: string) => (opts.confirm ? opts.confirm(p) : p === 'sign-in-password-1') };
-  return { service: new DocumentPasswordService(prisma, audit, auth), user, logged };
+  const settings: any = { fileProtection: async () => opts.protection ?? true };
+  return { service: new DocumentPasswordService(prisma, audit, auth, settings), user, logged };
 }
 
 describe('document password', () => {
@@ -48,7 +49,7 @@ describe('document password', () => {
     expect(r.set).toBe(true);
     expect(user.documentPassword).toBe('a-good-document-pass');   // the Prisma middleware encrypts it at rest
     const status = await service.status('u1');
-    expect(status).toEqual({ set: true, setAt: expect.any(String) });
+    expect(status).toEqual({ set: true, setAt: expect.any(String), required: true });
     expect(JSON.stringify(status)).not.toContain('a-good-document-pass');
     expect(logged[0]).toMatchObject({ entityType: 'User', reason: 'HR code set' });
   });
@@ -82,6 +83,21 @@ describe('document password', () => {
     const e: any = await service.pdf('u1', Buffer.from('%PDF'), 'report', 'Priya').catch((x) => x);
     expect(e).toBeInstanceOf(ConflictException);
     expect(e.message).toMatch(/Set a new one/);
+  });
+});
+
+describe('file passwords switched off (Settings)', () => {
+  it('files go out as they are, with no HR code needed, and the download is still audited', async () => {
+    const { service, logged } = await setup({ protection: false });
+    const pdf = Buffer.from('%PDF-1.4 not really');
+    const out = await service.pdf('u1', pdf, 'report', 'Priya Menon', 'e1');
+    expect(out).toEqual({ file: pdf, prefix: null });
+    const xlsx = Buffer.from('PK not really');
+    expect(await service.xlsx('u1', xlsx, 'data-export', 'October Interviews', 'e1')).toEqual({ file: xlsx, prefix: null });
+    const many = await service.pdfs('u1', [{ name: 'a.pdf', pdf, subject: 'Ann' }], 'day-reports', 'e1');
+    expect(many).toEqual([{ name: 'a.pdf', pdf }]);
+    expect(logged.map((l) => l.reason)).toEqual(['Unprotected download: report', 'Unprotected download: data-export', 'Unprotected download: day-reports']);
+    expect((await service.status('u1')).required).toBe(false);
   });
 });
 

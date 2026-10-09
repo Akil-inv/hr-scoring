@@ -4,6 +4,7 @@ import { AUTH_SERVICE } from '@akil-inv/auth-kit/nest';
 import { AuthError, AuthService, passwordProblem, verifyPassword } from '@akil-inv/auth-kit/server';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 import { pdfProtectionAvailable, protectPdf, protectXlsx, ProtectionUnavailable, unsafeForProtection } from './protect';
 
 /**
@@ -48,6 +49,7 @@ export class DocumentPasswordService implements OnModuleInit {
     private prisma: PrismaService,
     private audit: AuditService,
     @Inject(AUTH_SERVICE) private auth: AuthService,
+    private settings: SettingsService,
   ) {}
 
   async onModuleInit() {
@@ -56,9 +58,11 @@ export class DocumentPasswordService implements OnModuleInit {
     }
   }
 
-  async status(userId: string): Promise<{ set: boolean; setAt: string | null }> {
+  /** `required`: whether downloads are locked at all (a super admin can switch file passwords off). */
+  async status(userId: string): Promise<{ set: boolean; setAt: string | null; required: boolean }> {
+    const required = await this.settings.fileProtection();
     const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { documentPasswordSetAt: true } });
-    return { set: !!u?.documentPasswordSetAt, setAt: u?.documentPasswordSetAt?.toISOString() ?? null };
+    return { set: !!u?.documentPasswordSetAt, setAt: u?.documentPasswordSetAt?.toISOString() ?? null, required };
   }
 
   async set(userId: string, signInPassword: string, password: string): Promise<{ set: true; setAt: string }> {
@@ -108,12 +112,22 @@ export class DocumentPasswordService implements OnModuleInit {
     return u.documentPassword;
   }
 
-  private async record(userId: string, kind: DownloadKind, eventId: string | undefined, detail: Record<string, unknown>) {
-    await this.audit.log({ userId, eventId, action: AuditAction.CREATE, entityType: 'Download', entityId: eventId ?? userId, reason: `Protected download: ${kind}`, newValues: detail });
+  private async record(userId: string, kind: DownloadKind, eventId: string | undefined, detail: Record<string, unknown>, locked = true) {
+    await this.audit.log({ userId, eventId, action: AuditAction.CREATE, entityType: 'Download', entityId: eventId ?? userId, reason: `${locked ? 'Protected' : 'Unprotected'} download: ${kind}`, newValues: detail });
   }
 
+  /*
+   * With file passwords switched off (Settings, super admin), files go out as
+   * they are: no HR code needed, prefix null, and the download is still in
+   * the audit log, marked unprotected.
+   */
+
   /** `subject`: who or what the file is about; its first four letters start the file's password. */
-  async pdf(userId: string, pdf: Buffer, kind: DownloadKind, subject: string, eventId?: string, detail: Record<string, unknown> = {}): Promise<{ file: Buffer; prefix: string }> {
+  async pdf(userId: string, pdf: Buffer, kind: DownloadKind, subject: string, eventId?: string, detail: Record<string, unknown> = {}): Promise<{ file: Buffer; prefix: string | null }> {
+    if (!(await this.settings.fileProtection())) {
+      await this.record(userId, kind, eventId, detail, false);
+      return { file: pdf, prefix: null };
+    }
     const code = await this.passwordFor(userId);
     const prefix = filePrefix(subject);
     const file = await this.guard(() => protectPdf(pdf, prefix + code));
@@ -123,6 +137,10 @@ export class DocumentPasswordService implements OnModuleInit {
 
   /** Several PDFs for one download (a day's reports), each with its own candidate's prefix. */
   async pdfs(userId: string, files: { name: string; pdf: Buffer; subject: string }[], kind: DownloadKind, eventId?: string, detail: Record<string, unknown> = {}) {
+    if (!(await this.settings.fileProtection())) {
+      await this.record(userId, kind, eventId, { ...detail, files: files.length }, false);
+      return files.map((f) => ({ name: f.name, pdf: f.pdf }));
+    }
     const code = await this.passwordFor(userId);
     const out: { name: string; pdf: Buffer }[] = [];
     for (const f of files) out.push({ name: f.name, pdf: await this.guard(() => protectPdf(f.pdf, filePrefix(f.subject) + code)) });
@@ -130,7 +148,11 @@ export class DocumentPasswordService implements OnModuleInit {
     return out;
   }
 
-  async xlsx(userId: string, xlsx: Buffer, kind: DownloadKind, subject: string, eventId?: string, detail: Record<string, unknown> = {}): Promise<{ file: Buffer; prefix: string }> {
+  async xlsx(userId: string, xlsx: Buffer, kind: DownloadKind, subject: string, eventId?: string, detail: Record<string, unknown> = {}): Promise<{ file: Buffer; prefix: string | null }> {
+    if (!(await this.settings.fileProtection())) {
+      await this.record(userId, kind, eventId, detail, false);
+      return { file: xlsx, prefix: null };
+    }
     const code = await this.passwordFor(userId);
     const prefix = filePrefix(subject);
     const file = await protectXlsx(xlsx, prefix + code);

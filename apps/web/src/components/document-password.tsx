@@ -12,7 +12,8 @@ import { useAuthStore } from '@/lib/auth-store';
  * never the sign-in password. (Stored as the "document password" in the API.)
  */
 
-type Status = { set: boolean; setAt: string | null };
+/** `required` false: a super admin has switched file passwords off (Settings); files download unlocked. */
+type Status = { set: boolean; setAt: string | null; required?: boolean };
 
 function useDocumentPassword() {
   const token = useAuthStore((s) => s.token);
@@ -24,6 +25,12 @@ function useDocumentPassword() {
   }, [token]);
   useEffect(() => { load(); }, [load]);
   return { token, status, reload: load };
+}
+
+/** Whether downloads are locked right now: true, false, or null while it is being checked. */
+export function useFilesLocked(): boolean | null {
+  const { status } = useDocumentPassword();
+  return status ? status.required !== false : null;
 }
 
 const when = (iso: string | null) =>
@@ -63,6 +70,18 @@ export function DocumentPasswordCard() {
   };
 
   const field = 'w-full rounded-lg border border-dark-500 bg-dark-900 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-accent focus:outline-none';
+
+  if (status?.required === false) {
+    return (
+      <section id="document-password" className="mt-6 rounded-2xl border border-dark-600 bg-dark-800 p-6">
+        <h2 className="text-lg font-semibold text-white">HR code (for downloaded files)</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          File passwords are switched off for this platform, so the reports and Excel files you download open without a password.
+          {status.set ? ' Your HR code is kept for when they are switched back on.' : ''}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section id="document-password" className="mt-6 rounded-2xl border border-dark-600 bg-dark-800 p-6">
@@ -130,7 +149,7 @@ export function DocumentPasswordCard() {
 /** Next to download buttons: a warning when it isn't set, a reminder when it is. */
 export function DocumentPasswordNotice() {
   const { status } = useDocumentPassword();
-  if (!status) return null;
+  if (!status || status.required === false) return null;
   if (!status.set) {
     return (
       <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-200">
@@ -163,12 +182,13 @@ export function ActionError({ message, onClose }: { message: string | null; onCl
 
 /** After a download: what this file opens with. */
 export function DownloadNote({ note, onClose }: { note: { name: string; prefix: string | null; zip?: boolean } | null; onClose: () => void }) {
+  const locked = useFilesLocked();
   if (!note) return null;
   return (
     <div role="status" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-200">
       <span>
         Downloaded {note.name}.{' '}
-        {note.zip
+        {locked === false && !note.prefix ? null : note.zip
           ? <>Each report in it opens with the first four letters of the candidate&apos;s name in capitals + your HR code.</>
           : note.prefix
             ? <>It opens with <strong className="font-mono">{note.prefix}</strong> + your HR code.</>
