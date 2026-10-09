@@ -1,5 +1,7 @@
 # Document passwords
 
+> Super admins can switch file passwords off for the whole platform (Settings); see [SETTINGS.md](SETTINGS.md).
+
 Every file HR Scoring hands out is locked with a password made from **what the file is about plus the downloader's HR code** (see below):
 
 | Download | Where | Locked as |

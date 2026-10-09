@@ -6,7 +6,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { useEventId, useEventStore } from '@/lib/event-store';
 import {
-  ADD, addMonths, ARCHIVE, CHANGE, CLOSE, ControlledEvent, DELETE_DRAFT, DETAIL, DIRECTORY, EventDetail, EXTEND, MARK_DONE, Person,
+  ADD, addMonths, ARCHIVE, WHOLE_NUMBERS, CHANGE, CLOSE, ControlledEvent, DELETE_DRAFT, DETAIL, DIRECTORY, EventDetail, EXTEND, MARK_DONE, Person,
   REMOVE, ROLES, roleLabel, SEARCH, SET_RETENTION, START, dateRange, day, gql, initials, when,
 } from '@/lib/event-control';
 import { btn, card, Chip, Dialog, ErrorNote, input, StageBadge } from '@/components/event-control-ui';
@@ -152,6 +152,8 @@ function EventPage() {
               </>
             )}
           </section>
+
+          {!done && <ScoringSteps ev={ev} admin={admin} busy={busy} onChange={(on) => act(WHOLE_NUMBERS, { e: ev.id, on })} />}
 
           {p && (
             <section className={`${card} flex flex-col gap-3`}>
@@ -482,5 +484,33 @@ function Stat({ n, of, label }: { n: number; of?: number; label: string }) {
       <div className="text-[22px] font-semibold text-white">{n}{of !== undefined && <span className="text-[13px] text-[#8694a8]"> / {of}</span>}</div>
       <div className="text-xs text-[#8694a8]">{label}</div>
     </div>
+  );
+}
+
+/** A score just under 4 on this step: 3.75 for 0.25, 3.5 for 0.5, 3.9 for 0.1. */
+const example = (step: number) => String(Math.round((3 + Math.floor(0.99 / step) * step) * 100) / 100);
+
+/** Whole numbers only, or the rubric's own steps (e.g. 3.75). Fixed once a judge starts scoring. */
+function ScoringSteps({ ev, admin, busy, onChange }: { ev: EventDetail; admin: boolean; busy: boolean; onChange: (on: boolean) => void }) {
+  const fractions = ev.rubricStep !== null && ev.rubricStep < 1;
+  const locked = ev.scoringStarted;
+  const now = ev.wholeNumberScores || !fractions
+    ? <>Judges score in <strong>whole numbers</strong> (e.g. 3 or 4).</>
+    : <>Judges can score in steps of <strong>{ev.rubricStep}</strong> (e.g. {example(ev.rubricStep ?? 0.25)}), as the rubric allows.</>;
+  return (
+    <section className={`${card} flex flex-col gap-3`}>
+      <h2 className="text-base font-semibold text-white">Scoring</h2>
+      <p className="text-sm text-[#c3cad6]">{now}</p>
+      <label className={`flex items-start gap-3 text-sm ${admin && !locked ? 'text-[#e8edf5]' : 'text-[#8694a8]'}`}>
+        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#7c3aed]" checked={ev.wholeNumberScores}
+          disabled={!admin || locked || busy} onChange={(e) => onChange(e.target.checked)} />
+        <span>Whole numbers only{ev.rubricStep === null ? ' (whatever steps the rubric allows when it is uploaded)' : fractions ? ` (instead of steps of ${ev.rubricStep})` : ''}</span>
+      </label>
+      <p className="text-xs leading-relaxed text-[#8694a8]">
+        {locked
+          ? 'Judges have started scoring, so this is fixed for the event: every candidate is scored the same way.'
+          : 'Can be changed until the first judge starts scoring. The rubric itself is not changed.'}
+      </p>
+    </section>
   );
 }

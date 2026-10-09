@@ -91,6 +91,8 @@ model Event {
   /// chosen when the event is created), plus any extensions admins add.
   retentionMonths             Int            @default(6) @map("retention_months")
   retentionExtraMonths        Int            @default(0) @map("retention_extra_months")
+  /// Judges score in whole numbers only, whatever steps the rubric allows. Set until scoring starts.
+  wholeNumberScores           Boolean        @default(false) @map("whole_number_scores")
   /// Marked done after retention: candidate data removed, the record kept.
   doneAt                      DateTime?      @map("done_at")
   doneById                    String?        @map("done_by") @db.Uuid
@@ -943,4 +945,17 @@ model DataKey {
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("data_keys")
+}
+
+/// Platform-wide switches, one row (id 1), changed by super admins.
+model PlatformSetting {
+  id             Int      @id @default(1)
+  /// Downloads locked with the file's 4 letters + the downloader's HR code.
+  fileProtection Boolean  @default(true) @map("file_protection")
+  /// Two-factor sign-in offered and asked for (people's set-ups are kept while off).
+  twoFactor      Boolean  @default(true) @map("two_factor")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  updatedById    String?  @map("updated_by_id") @db.Uuid
+
+  @@map("platform_settings")
 }

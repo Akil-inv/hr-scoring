@@ -33,6 +33,7 @@ const interviewNav: NavItem[] = [
   { label: 'Upload setup', href: '/dashboard/upload', icon: '\u21EA', roles: ['SUPER_ADMIN', 'ADMIN'] },
   { label: 'Audit log', href: '/dashboard/audit', icon: '\uD83D\uDCCB' },
   { label: 'Users & roles', href: '/dashboard/users', icon: '\uD83D\uDC65', roles: ['SUPER_ADMIN'] },
+  { label: 'Settings', href: '/dashboard/settings', icon: '\u2699', roles: ['SUPER_ADMIN'] },
 ];
 
 const wizardNav: NavItem[] = [
@@ -47,6 +48,7 @@ const wizardNav: NavItem[] = [
   { label: 'Judge Links', href: '/dashboard/judge-links', icon: '\u2709' },
   { label: 'Audit Log', href: '/dashboard/audit', icon: '\uD83D\uDCCB' },
   { label: 'Users & roles', href: '/dashboard/users', icon: '\uD83D\uDC65', roles: ['SUPER_ADMIN'] },
+  { label: 'Settings', href: '/dashboard/settings', icon: '\u2699', roles: ['SUPER_ADMIN'] },
 ];
 
 export default function Sidebar() {

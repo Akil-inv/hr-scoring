@@ -28,6 +28,8 @@ export type ControlledEvent = {
   onEvent: boolean;
   admins: Person[];
   progress: Progress | null;
+  /** Judges score in whole numbers only, whatever steps the rubric allows. */
+  wholeNumberScores: boolean;
 };
 
 export type EventDetail = ControlledEvent & {
@@ -35,14 +37,18 @@ export type EventDetail = ControlledEvent & {
   recentChanges: { at: string; by: string; what: string }[];
   doneRemoves: string[];
   doneKeeps: string[];
+  /** A judge has started scoring: the scoring steps can't change any more. */
+  scoringStarted: boolean;
+  /** The finest step the rubric allows (0.25 = 3.75 possible); null before there's a rubric. */
+  rubricStep: number | null;
 };
 
-const EVENT_FIELDS = `id name description status stage setupMode startDate endDate closedAt doneAt retentionMonths retentionExtraMonths retainUntil due createdAt myRole onEvent
+const EVENT_FIELDS = `id name description status stage setupMode startDate endDate closedAt doneAt retentionMonths retentionExtraMonths retainUntil due createdAt myRole onEvent wholeNumberScores
   admins { userId name email } progress { candidates interviewsDone interviewsTotal daysClosed daysTotal }`;
 
 export const DIRECTORY = `query { eventDirectory { ${EVENT_FIELDS} } }`;
 export const DETAIL = `query($e: String!) { eventControl(eventId: $e) { ${EVENT_FIELDS}
-  people { userId name email role addedAt addedBy } recentChanges { at by what } doneRemoves doneKeeps } }`;
+  people { userId name email role addedAt addedBy } recentChanges { at by what } doneRemoves doneKeeps scoringStarted rubricStep } }`;
 export const CREATE = `mutation($i: NewEventInput!) { createControlledEvent(input: $i) { id name } }`;
 export const START = `mutation($e: String!) { startEvent(eventId: $e) { id } }`;
 export const CLOSE = `mutation($e: String!) { closeControlledEvent(eventId: $e) { id } }`;
@@ -50,6 +56,7 @@ export const ARCHIVE = `mutation($e: String!) { archiveEvent(eventId: $e) { id }
 export const SET_RETENTION = `mutation($e: String!, $m: Int!) { setEventRetention(eventId: $e, months: $m) { id } }`;
 export const EXTEND = `mutation($e: String!, $m: Int!, $r: String!) { extendEventRetention(eventId: $e, months: $m, reason: $r) { id } }`;
 export const MARK_DONE = `mutation($e: String!, $n: String!, $p: String!) { markEventDone(eventId: $e, confirmName: $n, password: $p) { id } }`;
+export const WHOLE_NUMBERS = `mutation($e: String!, $on: Boolean!) { setWholeNumberScores(eventId: $e, on: $on) { id } }`;
 export const DELETE_DRAFT = `mutation($e: String!, $n: String) { deleteDraftEvent(eventId: $e, confirmName: $n) }`;
 export const SEARCH = `query($e: String!, $q: String!) { eventPeopleSearch(eventId: $e, query: $q) { userId name email } }`;
 export const ADD = `mutation($e: String!, $u: String!, $r: String!) { addEventPerson(eventId: $e, userId: $u, role: $r) }`;
